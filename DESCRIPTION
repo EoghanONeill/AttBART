@@ -12,3 +12,5 @@ RoxygenNote: 7.2.0
 Depends: 
     R (>= 2.10)
 LazyData: true
+URL: https://github.com/EoghanONeill/AttBART
+BugReports: https://github.com/EoghanONeill/AttBART/issues
