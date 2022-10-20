@@ -14,3 +14,13 @@ Depends:
 LazyData: true
 URL: https://github.com/EoghanONeill/AttBART
 BugReports: https://github.com/EoghanONeill/AttBART/issues
+LinkingTo: 
+    Rcpp,
+    RcppArmadillo
+Imports: 
+    Rcpp,
+    mvtnorm,
+    stats,
+    MCMCpack,
+    truncnorm,
+    rmutil
