@@ -188,9 +188,9 @@ get_predictions = function(trees, X, single_tree = FALSE) {
 
 
         diffXmat[curr_X_node_indices == unique_node_indices[i],] =
-          sweep(diffXmat[curr_X_node_indices == unique_node_indices[i],],
+          sweep(diffXmat[curr_X_node_indices == unique_node_indices[i],, drop = FALSE],
                 2,
-                apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean ))
+                apply(X[curr_X_node_indices == unique_node_indices[i],, drop = FALSE],2,mean ))
 
         # diffXmat[curr_X_node_indices == unique_node_indices[i],] -
         # apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
@@ -203,7 +203,7 @@ get_predictions = function(trees, X, single_tree = FALSE) {
       distvec <- apply(diffXmat,1,sum)
 
       # arbitrarily divide by 2 and take the exponential
-      distvec <- exp( distvec/2 )
+      distvec <- exp( -1*distvec/2 )
 
 
       #
@@ -224,7 +224,7 @@ get_predictions = function(trees, X, single_tree = FALSE) {
 
     #normalize distances to obtain softmax weights
     # divide each row by row mean
-    smaxweights <- t(apply(expdistweights,1, function(x) x/mean(x)))
+    smaxweights <- t(apply(expdistweights,1, function(x) x/sum(x)))
 
     # LATER ACCOUNT FOR EPSILON AND W HERE
     # for now, just use smax weights as attention weights
@@ -267,6 +267,248 @@ get_predictions = function(trees, X, single_tree = FALSE) {
   }
   return(predictions)
 }
+
+
+
+# Get predictions test ---------------------------------------------------------
+
+get_predictions_test = function(trees, X, single_tree = FALSE, xtrain) {
+
+  # Stop nesting problems in case of multiple trees
+  if(is.null(names(trees)) & (length(trees) == 1)) trees = trees[[1]]
+
+
+  # THIS FUNCTION MUST BE COMPLEtely re-WRITTEN FOR AttBART
+  # Attention weights must be calculated and normalized
+
+  # Need Separate function for test data with additional input corresponding to test covariate matrix
+
+
+  # LATER INCLUDE EPSILON AND w as INPUTS
+
+  # TO calculate Weights
+  # Find Leaf for each training observation
+  # (Find leaf for test observation(s) if applicable)
+  # Obtain leaf covariate means (vectors)
+  # For each (training or test) observation, subtract the covariate mean ofthe relevant leaf
+  # Square the difference, then divide by 2, then take the exponential
+  # normalize to sum to 1 (softmax)
+  # later will account for epsilon and w
+  # set equal to attention weights
+
+  # For each tree, multiply each individuals prediciton by relevant weight
+
+  # Normally trees will be a list of lists but just in case
+  if(single_tree) {
+
+    # If one tree, then attention weight must be 1, so the predicitons are unaffected
+
+    # Deal with just a single tree
+    if(nrow(trees$tree_matrix) == 1) {
+      predictions = rep(trees$tree_matrix[1, 'mu'], nrow(X))
+    } else {
+      # Loop through the node indices to get predictions
+      predictions = rep(NA, nrow(X))
+      # unique_node_indices = unique(trees$node_indices)
+
+      temptreemat <- trees$tree_matrix
+      unique_node_indices <- which(temptreemat[,1] ==1)
+
+      # Get the node indices for the current X matrix
+      curr_X_node_indices = fill_tree_details(trees, X)$node_indices
+      # Now loop through all node indices to fill in details
+      for(i in 1:length(unique_node_indices)) {
+
+        if(sum(curr_X_node_indices == unique_node_indices[i])==0){
+          #next #no test observations in leaf
+        }else{
+          predictions[curr_X_node_indices == unique_node_indices[i]] =
+            trees$tree_matrix[unique_node_indices[i], 'mu']
+        }
+      }
+    }
+    # More here to deal with more complicated trees - i.e. multiple trees
+
+
+    if(any(is.na(predictions))){
+
+      print("trees = ")
+      print(trees)
+
+      print("predictions = ")
+      print(predictions)
+
+
+      stop("Error in get_predictions. NA prediction values")
+    }
+
+
+  } else {
+    # # Do a recursive call to the function
+    # partial_trees = trees
+    # partial_trees[[1]] = NULL # Blank out that element of the list
+    # predictions = get_predictions(trees[[1]], X, single_tree = TRUE)  +
+    #   get_predictions(partial_trees, X,
+    #                   single_tree = length(partial_trees) == 1)
+    # #single_tree = !is.null(names(partial_trees)))
+    # # The above only sets single_tree to if the names of the object is not null (i.e. is a list of lists)
+
+
+    # cannot proceed with recursion, instead must save weights and leaf means
+
+    # print("length(trees) = ")
+    # print(length(trees))
+    #
+    # print("nrow(X) = ")
+    # print(nrow(X))
+
+    # matrix of tree predictions
+    treepreds <- matrix(NA,
+                        nrow = nrow(X),
+                        ncol = length(trees))
+
+    #matrix of observation and tree-specific unnormalized weights
+    expdistweights <- matrix(NA,
+                             nrow = nrow(X),
+                             ncol = length(trees))
+
+
+    for(tree_ind in 1:length(trees)){
+
+      # save unweighted predictions for tree
+      treepreds[, tree_ind] <- get_predictions(trees[[tree_ind]], X, single_tree = TRUE)
+
+      temptree <- trees[[tree_ind]]
+      # unique_node_indices = unique(temptree$node_indices)
+
+      temptreemat <- trees$tree_matrix
+      unique_node_indices <- which(temptreemat[,1] ==1)
+
+      # Get the node indices for the current X matrix
+      # print("temptree = ")
+      # print(temptree)
+      # print("X = ")
+      # print(X)
+
+
+      curr_X_node_indices = fill_tree_details(temptree, X)$node_indices
+      curr_X_node_indices_train = fill_tree_details(temptree, xtrain)$node_indices
+
+      # create mean vectors for each node
+      # let each column correspond to a node
+      # leafmeanmat <- matrix(NA, nrow = ncol(X), ncol = length(unique_node_indices))
+
+      # for each X row, subtract the relevant leaf mean
+      diffXmat <- X
+
+      for(i in 1:length(unique_node_indices)) {
+        #column (variable) means of subset of X matrix containing observations in leaf i
+        # leafmeanmat[,i] = apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
+        # diffXmat[curr_X_node_indices == unique_node_indices[i],] = diffXmat[curr_X_node_indices == unique_node_indices[i],] -
+        #   leafmeanmat[,i]
+
+        # diffXmat[curr_X_node_indices == unique_node_indices[i],] = diffXmat[curr_X_node_indices == unique_node_indices[i],] -
+        #   apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
+
+        if(sum(curr_X_node_indices == unique_node_indices[i])==0){
+          # DO NOTHING
+          # no test observations in relevant leaf
+        }else{
+
+          # print("curr_X_node_indices = ")
+          # print(curr_X_node_indices)
+          # print("curr_X_node_indices_train = ")
+          # print(curr_X_node_indices_train)
+          #
+          # print("unique_node_indices[i] = ")
+          # print(unique_node_indices[i])
+          #
+          #
+          # print("diffXmat[curr_X_node_indices == unique_node_indices[i],  ]= ")
+          # print(diffXmat[curr_X_node_indices == unique_node_indices[i],  ])
+
+          diffXmat[curr_X_node_indices == unique_node_indices[i],  ] =
+            sweep(X[curr_X_node_indices == unique_node_indices[i], , drop = FALSE],
+                  2,
+                  apply(xtrain[curr_X_node_indices_train == unique_node_indices[i],, drop = FALSE],2,mean ))
+        }
+        # diffXmat[curr_X_node_indices == unique_node_indices[i],] -
+        # apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
+
+      }
+
+      # square differences (and arbitrarily divide by 2)
+      diffXmat <- (diffXmat^2)
+      # obtain row sums of squared differences
+      distvec <- apply(diffXmat,1,sum)
+
+      # arbitrarily divide by 2 and take the exponential
+      distvec <- exp( -1*distvec/2 )
+
+
+      #
+
+      # Now for each X row, subtract the relevant leaf mean
+      # diffXmat <- X
+      #
+      # # Now loop through all node indices to fill in details
+      # for(i in 1:length(unique_node_indices)) {
+      #   diffXmat[curr_X_node_indices == unique_node_indices[i],] = diffXmat[curr_X_node_indices == unique_node_indices[i],] -
+      #     leafmeanmat[,i]
+      # }
+
+
+      expdistweights[, tree_ind] <- distvec # ENTER Weight vector here
+
+    }
+
+    #normalize distances to obtain softmax weights
+    # divide each row by row mean
+    smaxweights <- t(apply(expdistweights,1, function(x) x/sum(x)))
+
+    # LATER ACCOUNT FOR EPSILON AND W HERE
+    # for now, just use smax weights as attention weights
+    #
+    #
+    #
+    #
+    #
+
+    Aweights <- smaxweights
+
+    # multiply predictions and weights element-wise
+    # then take the row sums
+    predictions <-  apply(treepreds*smaxweights,1,sum)
+
+    if(any(is.na(predictions))){
+
+      print("treepreds = ")
+      print(treepreds)
+
+      print("smaxweights = ")
+      print(smaxweights)
+
+
+      stop("Error in get_predictions. NA prediction values")
+    }
+
+  }
+
+  if(any(is.na(predictions))){
+
+    print("treepreds = ")
+    print(treepreds)
+
+    print("smaxweights = ")
+    print(smaxweights)
+
+
+    stop("Error in get_predictions. NA prediction values")
+  }
+  return(predictions)
+}
+
+
 
 
 
@@ -401,9 +643,9 @@ get_predictions_drop = function(trees, X, single_tree = FALSE, drop_ind) {
 
 
         diffXmat[curr_X_node_indices == unique_node_indices[i],] =
-          sweep(diffXmat[curr_X_node_indices == unique_node_indices[i],],
+          sweep(diffXmat[curr_X_node_indices == unique_node_indices[i],, drop = FALSE],
                 2,
-                apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean ))
+                apply(X[curr_X_node_indices == unique_node_indices[i],, drop = FALSE],2,mean ))
 
         # diffXmat[curr_X_node_indices == unique_node_indices[i],] -
         # apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
@@ -416,7 +658,7 @@ get_predictions_drop = function(trees, X, single_tree = FALSE, drop_ind) {
       distvec <- apply(diffXmat,1,sum)
 
       # arbitrarily divide by 2 and take the exponential
-      distvec <- exp( distvec/2 )
+      distvec <- exp( -1*distvec/2 )
 
 
       #
@@ -437,7 +679,7 @@ get_predictions_drop = function(trees, X, single_tree = FALSE, drop_ind) {
 
     #normalize distances to obtain softmax weights
     # divide each row by row mean
-    smaxweights <- t(apply(expdistweights,1, function(x) x/mean(x)))
+    smaxweights <- t(apply(expdistweights,1, function(x) x/sum(x)))
 
     # LATER ACCOUNT FOR EPSILON AND W HERE
     # for now, just use smax weights as attention weights
@@ -601,7 +843,7 @@ get_attention = function(trees, X) {
       distvec <- apply(diffXmat,1,sum)
 
       # arbitrarily divide by 2 and take the exponential
-      distvec <- exp( distvec/2 )
+      distvec <- exp( -1*distvec/2 )
 
 
       #
@@ -621,8 +863,8 @@ get_attention = function(trees, X) {
     }
 
     #normalize distances to obtain softmax weights
-    # divide each row by row mean
-    smaxweights <- t(apply(expdistweights,1, function(x) x/mean(x)))
+    # divide each row by row sum
+    smaxweights <- t(apply(expdistweights,1, function(x) x/sum(x)))
 
     # LATER ACCOUNT FOR EPSILON AND W HERE
     # for now, just use smax weights as attention weights

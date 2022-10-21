@@ -9,19 +9,27 @@ predict_attbart = function(object, newdata,
                      ncol = nrow(newdata))
 
 
-  # print("nrow(newdata)= ")
-  # print(nrow(newdata))
-  #
-  # print("object$scale= ")
-  # print(object$scale)
-  #
-  # print("object$center= ")
-  # print(object$center)
+  print("nrow(newdata)= ")
+  print(nrow(newdata))
 
-  newdata <- newdata * object$scale + object$center
+  print("ncol(newdata)= ")
+  print(ncol(newdata))
 
-  # print("nrow(newdata)= ")
-  # print(nrow(newdata))
+  print("object$scale= ")
+  print(object$scale)
+
+  print("object$center= ")
+  print(object$center)
+
+  # newdata <- newdata * object$scale + object$center
+
+  newdata <- (newdata -  object$center)/ object$scale
+
+  print("nrow(newdata)= ")
+  print(nrow(newdata))
+
+  print("ncol(newdata)= ")
+  print(ncol(newdata))
 
   # Now loop through iterations and get predictions
   for (i in 1:n_its) {
@@ -46,6 +54,70 @@ predict_attbart = function(object, newdata,
   return(out)
 
 } # end of predict function
+
+#' @export
+predict_attbart_test = function(object, newdata,
+                           type = c('all', 'median', 'mean')) {
+
+
+  xtrain <- object$scaledtrainingdata
+
+  # Create holder for predicted values
+  n_newX = dim(newdata)[1]
+  n_its = object$npost
+  y_hat_mat = matrix(NA, nrow = n_its,
+                     ncol = nrow(newdata))
+
+
+  print("nrow(newdata)= ")
+  print(nrow(newdata))
+
+  print("ncol(newdata)= ")
+  print(ncol(newdata))
+
+  print("object$scale= ")
+  print(object$scale)
+
+  print("object$center= ")
+  print(object$center)
+
+  # newdata <- newdata * object$scale + object$center
+
+  newdata <- (newdata -  object$center)/ object$scale
+
+  print("nrow(newdata)= ")
+  print(nrow(newdata))
+
+  print("ncol(newdata)= ")
+  print(ncol(newdata))
+
+  # Now loop through iterations and get predictions
+  for (i in 1:n_its) {
+    # Get current set of trees
+    curr_trees = object$trees[[i]]
+
+    # print("i = ")
+    # print(i)
+
+    # Use get_predictions function to get predictions
+    y_hat_mat[i,] = get_predictions_test(curr_trees,
+                                    newdata,
+                                    single_tree = length(curr_trees) == 1,
+                                    xtrain)
+  }
+
+  # Sort out what to return
+  out = switch(type,
+               all = object$y_mean + object$y_sd * y_hat_mat,
+               mean = object$y_mean + object$y_sd * apply(y_hat_mat,2,'mean'),
+               median = object$y_mean + object$y_sd * apply(y_hat_mat,2,'median'))
+
+  return(out)
+
+} # end of predict function
+
+
+
 #' @export
 marginal_predict_mybart = function(object, var_marg, newdata,
                                type = c('all', 'median', 'mean')) {

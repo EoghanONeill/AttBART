@@ -4,7 +4,7 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-NOTE: Cuurently produces constant predictions. Not debugged.
+NOTE: Currently produces constant predictions. Not debugged.
 
 
 The goal of AttBART is to implement Attention Weighted Bayesian Additive Regression Trees by combining Ateention Weighted Boosted Trees (Konstantinov et al. 2022) with Bayesian Additive Regression Trees (Chipman et al. 2010).

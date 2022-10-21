@@ -7,7 +7,7 @@
 #' @useDynLib AttBART, .registration = TRUE
 #' @export
 
-attbart = function(x,
+attbart = function(xtrain,
                    y,
                    sparse = TRUE,
                    ntrees = 10,
@@ -30,7 +30,7 @@ attbart = function(x,
   # LOOK UP DBARTS, SoftBART, OR OTHER PACKAGES
   # MAYBE USE BART-IS NORMALIZATION
 
-  x <- scale(x)
+  x <- scale(xtrain)
 
   tempcenter <- attr(x, 'scaled:scale')
   tempscale <- attr(x, 'scaled:center')
@@ -86,13 +86,13 @@ attbart = function(x,
       y_hat <- get_predictions(curr_trees, x, single_tree = FALSE)
 
 
-      print("yhat = ")
-      print(yhat)
+      # print("y_hat = ")
+      # print(y_hat)
 
       curr = (i - nburn)/nthin
 
-      print("curr = ")
-      print(curr)
+      # print("curr = ")
+      # print(curr)
       tree_store[[curr]] = curr_trees
       sigma2_store[curr] = sigma2
       y_hat_store[curr,] = y_hat
@@ -315,7 +315,8 @@ attbart = function(x,
               var_count_store = var_count_store,
               s = s_prob_store,
               center = tempcenter,
-              scale = tempscale
+              scale = tempscale,
+              scaledtrainingdata = x
               ))
 
 } # End main function
