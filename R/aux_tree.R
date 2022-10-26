@@ -319,6 +319,19 @@ get_predictions_test = function(trees, X, single_tree = FALSE, xtrain) {
       # Now loop through all node indices to fill in details
       for(i in 1:length(unique_node_indices)) {
 
+        # print("line 322. curr_X_node_indices = ")
+        # print(curr_X_node_indices)
+        #
+        # print("unique_node_indices = ")
+        # print(unique_node_indices)
+        #
+        # print("temptreemat = ")
+        # print(temptreemat)
+        #
+        # print("i = ")
+        # print(i)
+
+
         if(sum(curr_X_node_indices == unique_node_indices[i])==0){
           #next #no test observations in leaf
         }else{
@@ -381,7 +394,7 @@ get_predictions_test = function(trees, X, single_tree = FALSE, xtrain) {
       temptree <- trees[[tree_ind]]
       # unique_node_indices = unique(temptree$node_indices)
 
-      temptreemat <- trees$tree_matrix
+      temptreemat <- temptree$tree_matrix
       unique_node_indices <- which(temptreemat[,1] ==1)
 
       # Get the node indices for the current X matrix
@@ -399,7 +412,9 @@ get_predictions_test = function(trees, X, single_tree = FALSE, xtrain) {
       # leafmeanmat <- matrix(NA, nrow = ncol(X), ncol = length(unique_node_indices))
 
       # for each X row, subtract the relevant leaf mean
-      diffXmat <- X
+      diffXmat <- matrix(NA,
+                         nrow = nrow(X),
+                         ncol = ncol(X))
 
       for(i in 1:length(unique_node_indices)) {
         #column (variable) means of subset of X matrix containing observations in leaf i
@@ -409,6 +424,19 @@ get_predictions_test = function(trees, X, single_tree = FALSE, xtrain) {
 
         # diffXmat[curr_X_node_indices == unique_node_indices[i],] = diffXmat[curr_X_node_indices == unique_node_indices[i],] -
         #   apply(X[curr_X_node_indices == unique_node_indices[i],],2,mean )
+
+        # print("line 428. curr_X_node_indices = ")
+        # print(curr_X_node_indices)
+        #
+        # print("unique_node_indices = ")
+        # print(unique_node_indices)
+        #
+        # print("i = ")
+        # print(i)
+        #
+        # print("temptreemat = ")
+        # print(temptreemat)
+
 
         if(sum(curr_X_node_indices == unique_node_indices[i])==0){
           # DO NOTHING

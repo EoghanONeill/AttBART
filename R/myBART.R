@@ -32,8 +32,8 @@ attbart = function(xtrain,
 
   x <- scale(xtrain)
 
-  tempcenter <- attr(x, 'scaled:scale')
-  tempscale <- attr(x, 'scaled:center')
+  tempcenter <- attr(x, 'scaled:center')
+  tempscale <- attr(x, 'scaled:scale')
 
 
   # Extract control parameters
@@ -83,8 +83,13 @@ attbart = function(xtrain,
     # If at the right place, store everything
     if((i > nburn) & ((i - nburn) %% nthin) == 0) {
 
+      # print("line 86. y_hat = ")
+      # print(y_hat)
+
       y_hat <- get_predictions(curr_trees, x, single_tree = FALSE)
 
+      # print("line 91. y_hat = ")
+      # print(y_hat)
 
       # print("y_hat = ")
       # print(y_hat)
@@ -284,6 +289,10 @@ attbart = function(xtrain,
 
       #need to use all trees because weights depend on all trees
       y_hat <- get_predictions(curr_trees, x, single_tree = FALSE)
+
+      # print("line 293 y_hat = ")
+      # print(y_hat)
+
 
       tree_fits_store[,j] = current_fit # update the new fit
 

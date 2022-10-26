@@ -23,7 +23,9 @@ predict_attbart = function(object, newdata,
 
   # newdata <- newdata * object$scale + object$center
 
-  newdata <- (newdata -  object$center)/ object$scale
+  # newdata <- (newdata -  object$center)/ object$scale
+  newdata2 <- scale(newdata, center = object$center, scale = object$scale)
+
 
   print("nrow(newdata)= ")
   print(nrow(newdata))
@@ -41,7 +43,7 @@ predict_attbart = function(object, newdata,
 
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions(curr_trees,
-                                    newdata,
+                                    newdata2,
                                     single_tree = length(curr_trees) == 1)
   }
 
@@ -83,7 +85,9 @@ predict_attbart_test = function(object, newdata,
 
   # newdata <- newdata * object$scale + object$center
 
-  newdata <- (newdata -  object$center)/ object$scale
+  newdata2 <- scale(newdata, center = object$center, scale = object$scale)
+
+  # newdata <- (newdata -  object$center)/ object$scale
 
   print("nrow(newdata)= ")
   print(nrow(newdata))
@@ -101,7 +105,7 @@ predict_attbart_test = function(object, newdata,
 
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions_test(curr_trees,
-                                    newdata,
+                                         newdata2,
                                     single_tree = length(curr_trees) == 1,
                                     xtrain)
   }
