@@ -1,4 +1,6 @@
 #' @import Rcpp
+#' @import progress
+#' @import collapse
 #' @importFrom mvtnorm 'rmvnorm'
 #' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
 #' @importFrom MCMCpack 'rdirichlet'
@@ -7,502 +9,357 @@
 #' @useDynLib AttBART, .registration = TRUE
 #' @export
 
-attbart = function(xtrain,
-                   y,
-                   sparse = TRUE,
-                   ntrees = 10,
-                   node_min_size = 5,
-                   alpha = 0.95,
-                   beta = 2,
-                   nu = 3,
-                   lambda = 0.1,
-                   mu_mu = 0,
-                   sigma2 = 1,
-                   sigma2_mu = 1,
-                   nburn = 1000,
-                   npost = 1000,
-                   nthin = 1,
-                   penalise_num_cov = TRUE,
-                   lambda_cov = 0.4,
-                   nu_cov = 2) {
+attBart_no_w <- function(Xtrain,
+                         ytrain,
+                         m = 5,
+                         node_min_size = 5, # Needs to be at least 1!
+                         alpha = 0.95,
+                         beta = 2,
+                         nu = 3,
+                         sigquant = 0.90,
+                         k = 2,
+                         lambda = NA,
+                         sigest = NA,
+                         sigmaf = NA,
+                         n_burn = 1000,
+                         n_post = 1000, # Number of observations post burn-in and thinning
+                         n_thin = 1,
+                         trans_prob = c(2.5, 2.5, 4) / 9, # Probabilities to grow, prune or change, respectively
+                         max_bad_trees = 10,
+                         sparse = FALSE, # The feature weighting of the DART model
+                         a = 0.5, # ????
+                         b = 1, # ????
+                         seed = NA,
+                         feature_weighting = FALSE,
+                         sq_ydiff_sigmu = TRUE,
+                         centre_y = TRUE,
+                         const_tree_weights = FALSE) { # Simple feature weighting
+  if (!is.na(seed)) set.seed(seed)
 
-  # NORMLIZE X
-  # LOOK UP DBARTS, SoftBART, OR OTHER PACKAGES
-  # MAYBE USE BART-IS NORMALIZATION
-
-  x <- scale(xtrain)
-
-  tempcenter <- attr(x, 'scaled:center')
-  tempscale <- attr(x, 'scaled:scale')
+  # Transform y and X
+  X_scaled <- scale(Xtrain)
+  X_center <- attr(X_scaled, "scaled:center")
+  X_scale <- attr(X_scaled, "scaled:scale")
 
 
-  # Extract control parameters
-  node_min_size = node_min_size
+  y_sd <- sd(ytrain)
+  y_mean <- mean(ytrain)
 
-  # Extract MCMC details
-  TotIter = nburn + npost*nthin # Total of iterations
+  y_scale = (ytrain - y_mean)/y_sd
+
+  # y_min <- min(y_scale)
+  # y_max <- max(y_scale)
+
+  if(centre_y){
+    y_max <- max(y_scale)
+    y_min <- min(y_scale)
+  }else{
+    y_max <- 0
+    y_min <- 0
+  }
+
+  # Other variables
+  sigma2 <- 1                          # !!!!!!!!!!!!!!
+  mu_mu <- 0 # (y_min + y_max) / (2 * m)
+
+  y_scale <- y_scale - (y_max + y_min)/2
+  # tau=(max(y.train)-min(y.train))/(2*k*sqrt(ntree))
+
+  if(sq_ydiff_sigmu){
+    # sigma2_mu <- ((max(y_scale)-min(y_scale))/(2 * k * sqrt(m)))^2
+    sigma2_mu <- ((max(y_scale)-min(y_scale))*sqrt(m)/(2 * k))^2
+  }else{
+    # sigma2_mu <- (max(y_scale)-min(y_scale))/((2 * k * sqrt(m))^2)
+    sigma2_mu <- (max(y_scale)-min(y_scale))*sqrt(m)/((2 * k)^2)
+  }
+
+  # sigma2_mu <- ((y_max - y_min) / (2 * k * sqrt(m)))^2
+
+
+
+
+  n <- length(y_scale)
+  p <- ncol(X_scaled)
+  s <- rep(1 / p, p) # probability vector to be used during the growing process for DART feature weighting
+  rho <- p # For DART
+
+  if (is.na(sigest)) {
+    if (p < n) {
+      df <- data.frame(X_scaled, y_scale)
+      lmf <- lm(y_scale ~ ., df)
+      sigest <- summary(lmf)$sigma
+    } else {
+      sigest <- sd(y_scale)
+    }
+  }
+  qchi <- qchisq(1.0 - sigquant, nu)
+  lambda <- (sigest * sigest * qchi) / nu # lambda parameter for sigma prior
+
+  # if (is.na(sigmaf)) {
+  #   tau <- (max(y_scale) - min(y_scale)) / (2 * k * sqrt(m))
+  # } else {
+  #   tau <- sigmaf / sqrt(m)
+  # }
+  sigma2 <- sigest^2
+  tau <- 1
+
+  # Total number of MCMC iterations
+  n_iter <- n_burn + n_post * n_thin
+  runif_matrix <- matrix(runif(m * n_iter), nrow = n_iter, ncol = m)
 
   # Storage containers
-  store_size = npost
-  tree_store = vector('list', store_size)
-  sigma2_store = rep(NA, store_size)
-  y_hat_store = matrix(NA, ncol = length(y), nrow = store_size)
-  var_count = rep(0, ncol(x))
-  var_count_store = matrix(0, ncol = ncol(x), nrow = store_size)
-  s_prob_store = matrix(0, ncol = ncol(x), nrow = store_size)
-  tree_fits_store = matrix(0, ncol = ntrees, nrow = length(y))
+  tree_store <- vector(mode = "list", length = n_post)
+  sigma2_store <- rep(NA, n_post)
+  y_hat_store <- matrix(NA, ncol = n, nrow = n_post)
+  att_weights_store <- vector(mode = "list", length = n_post)
+  var_count <- rep(0, p)
+  var_count_store <- matrix(0, ncol = p, nrow = n_post)
+  s_prob_store <- matrix(0, ncol = p, nrow = n_post)
+  alpha_MH_store <- matrix(NA, ncol = m, nrow = n_post)
+  type_store <- matrix(NA, ncol = m, nrow = n_post)
+  chosen_type_store <- matrix(NA, ncol = m, nrow = n_post)
 
-  # Scale the response target variable
-  y_mean = mean(y)
-  y_sd = sd(y)
-  y_scale = (y - y_mean)/y_sd
-  n = length(y_scale)
-  p = ncol(x)
-  s = rep(1/p, p)
+  # Initialise trees using stumps
+  curr_trees <- create_stumps(
+    m = m,
+    y = y_scale,
+    X = X_scaled
+  )
 
-  # Create a list of trees for the initial stump
-  curr_trees = create_stump(num_trees = ntrees,
-                            y = y_scale,
-                            X = x)
-  # Initialise the new trees as current one
-  new_trees = curr_trees
-
-  # Initialise the predicted values to zero
-  y_hat = get_predictions(curr_trees, x, single_tree = ntrees == 1)
-
+  # Set up progress bar
+  # pb <- progress_bar$new(total = n_iter, format = "MCMC iterations [:bar] :current/:total in :elapsedfull, ETA: :eta")
   # Set up a progress bar
-  pb = utils::txtProgressBar(min = 1, max = TotIter,
+  pb = utils::txtProgressBar(min = 1, max = n_iter,
                              style = 3, width = 60,
-                             title = 'Running rBART...')
+                             title = 'Running attBART...')
 
-  # Start the MCMC iterations loop
-  for (i in 1:TotIter) {
-
+  # MCMC iterations loop
+  for (i in 1:n_iter) {
     utils::setTxtProgressBar(pb, i)
 
-    # If at the right place, store everything
-    if((i > nburn) & ((i - nburn) %% nthin) == 0) {
-
-      # print("line 86. y_hat = ")
-      # print(y_hat)
-
-      y_hat <- get_predictions(curr_trees, x, single_tree = FALSE)
-
-      # print("line 91. y_hat = ")
-      # print(y_hat)
-
-      # print("y_hat = ")
-      # print(y_hat)
-
-      curr = (i - nburn)/nthin
-
-      # print("curr = ")
-      # print(curr)
-      tree_store[[curr]] = curr_trees
-      sigma2_store[curr] = sigma2
-      y_hat_store[curr,] = y_hat
-      var_count_store[curr,] = var_count
-      s_prob_store[curr,] = s
-    }
-
-      # Start looping through trees
-      for (j in 1:ntrees) {
-
-        new_trees <- curr_trees
-
-        # current_partial_residuals = y_scale - y_hat + tree_fits_store[,j]
-
-        # Propose a new tree via grow/change/prune/swap
-        # type = sample(c('grow', 'prune', 'change', 'swap'), 1)
-        type = sample(c('grow', 'prune', 'change'), 1)
-        if(i < max(floor(0.1*nburn), 10)) type = 'grow' # Grow for the first few iterations
-
-        # Generate a new tree based on the current
-        new_trees[[j]] = update_tree(y = y_scale,
-                                     X = x,
-                                     type = type,
-                                     curr_tree = curr_trees[[j]],
-                                     node_min_size = node_min_size,
-                                     s = s)
-
-        # CURRENT TREE: compute the log of the marginalised likelihood + log of the tree prior
-
-        # Must account for attention weights given the current/old tree
-
-        # to obtain current tree attention weight, need attention weights of all trees because normalized in softmax
-
-        Aweights <- get_attention(curr_trees, x)
-
-        # might need to obtain all tree predictions
-
-        # matrix of tree predictions
-        treepreds <- matrix(NA,
-                            nrow = nrow(x),
-                            ncol = length(curr_trees))
-
-        for(tree_ind in 1:length(curr_trees)){
-
-          # save unweighted predictions for tree
-          treepreds[, tree_ind] <- get_predictions(curr_trees[[tree_ind]], x, single_tree = TRUE)
-
-        }
-
-
-        # create partial residuals conditional on the old tree
-
-        #transformed current_partial_residuals
-        # divide each partial residual by relevant attention weight of current/old tree
-        # norm_partial_residuals <- current_partial_residuals/Aweights[,j]
-
-        temp_par_resid <- y_scale - get_predictions(curr_trees, x, single_tree = FALSE) + treepreds[, j]*Aweights[,j]
-
-        # if(!all(temp_par_resid == current_partial_residuals)){
-        #   stop("Partial residuals calculation possibly incorrect")
-        # }
-
-        temp_par_resid <- temp_par_resid / Aweights[,j]
-
-
-        # check that current_partial_residuals is correct
-
-
-        #full conditional calculations must be adjusted to account for recaled errors
-
-        # l_old = tree_full_conditional(curr_trees[[j]],
-        #                               current_partial_residuals,
-        #                               sigma2,
-        #                               sigma2_mu) +
-        #   get_tree_prior(curr_trees[[j]], alpha, beta) +
-        #   get_num_cov_prior(curr_trees[[j]], lambda_cov, nu_cov, penalise_num_cov)
-
-        # print("temp_par_resid = ")
-        # print(temp_par_resid)
-
-        l_old = att_tree_full_conditional(curr_trees[[j]],
-                                          temp_par_resid,#current_partial_residuals,
-                                          sigma2,
-                                          sigma2_mu,
-                                          Aweights[,j]) +
-          get_tree_prior(curr_trees[[j]], alpha, beta) +
-          get_num_cov_prior(curr_trees[[j]], lambda_cov, nu_cov, penalise_num_cov)
-
-        # Must account for attention weights given the new tree
-
-
-
-        # obtain attention weights for set of trees with nre tree
-
-        Aweights_new <- get_attention(new_trees, x)
-
-        # print("line 182 Aweights_new = ")
-        # print(Aweights_new)
-        #
-        # print("line 185. get_predictions(new_trees, x, single_tree = FALSE) = ")
-        # print(get_predictions(new_trees, x, single_tree = FALSE))
-        #
-        # print("line 185. get_predictions(new_trees[[j]], x, single_tree = TRUE)*Aweights_new[,j] = ")
-        # print(get_predictions(new_trees[[j]], x, single_tree = TRUE)*Aweights_new[,j])
-
-        # temp_par_resid_new <- y_scale - get_predictions(new_trees, x, single_tree = FALSE) +
-        #   get_predictions(new_trees[[j]], x, single_tree = TRUE)*Aweights_new[,j]
-
-
-        temp_par_resid_new <- y_scale - get_predictions_drop(new_trees, x, single_tree = FALSE,j)
-
-
-        # print("line 184. temp_par_resid_new = ")
-        # print(temp_par_resid_new)
-
-        temp_par_resid_new <- temp_par_resid_new / Aweights_new[,j]
-
-        # print("temp_par_resid_new = ")
-        # print(temp_par_resid_new)
-
-
-        # NEW TREE: compute the log of the marginalised likelihood + log of the tree prior
-        l_new = att_tree_full_conditional(new_trees[[j]],
-                                          temp_par_resid_new,
-                                          sigma2,
-                                          sigma2_mu,
-                                          Aweights_new[,j]) +
-          get_tree_prior(new_trees[[j]], alpha, beta)  +
-          get_num_cov_prior(new_trees[[j]], lambda_cov, nu_cov, penalise_num_cov)
-
-
-
-
-
-        # Exponentiate the results above
-        a = exp(l_new - l_old)
-
-
-        if((i %%100) ==0){
-          print("l_new = ")
-          print(l_new)
-
-          print("l_old = ")
-          print(l_old)
-
-          print("a = ")
-          print(a)
-
-        }
-
-
-
-        temp_weights <- Aweights[,j]
-
-        if(a > runif(1)) {
-          curr_trees[[j]] = new_trees[[j]]
-          temp_par_resid <- temp_par_resid_new
-          temp_weights <- Aweights_new[,j]
-
-          if (type =='change'){
-            var_count[curr_trees[[j]]$var[1]] = var_count[curr_trees[[j]]$var[1]] - 1
-            var_count[curr_trees[[j]]$var[2]] = var_count[curr_trees[[j]]$var[2]] + 1
-          }
-
-          if (type=='grow'){
-            var_count[curr_trees[[j]]$var] = var_count[curr_trees[[j]]$var] + 1 } # -1 because of the intercept in X
-
-          if (type=='prune'){
-            var_count[curr_trees[[j]]$var] = var_count[curr_trees[[j]]$var] - 1 } # -1 because of the intercept in X
-        }
-
-
-
-        # NEED NEW DRAW OF TERMINAL NODE PARAMETERS
-
-
-
-        # Update mu whether tree accepted or not
-        curr_trees[[j]] = att_simulate_mu(curr_trees[[j]],
-                                          temp_par_resid,#current_partial_residuals,
-                                          sigma2,
-                                          sigma2_mu,
-                                          temp_weights)
-
-      # Updating BART predictions
-      current_fit = get_predictions(curr_trees[j], x, single_tree = TRUE)
-      # y_hat = y_hat - tree_fits_store[,j] # subtract the old fit
-      # y_hat = y_hat + current_fit # add the new fit
-
-      #need to use all trees because weights depend on all trees
-      y_hat <- get_predictions(curr_trees, x, single_tree = FALSE)
-
-      # print("line 293 y_hat = ")
-      # print(y_hat)
-
-
-      tree_fits_store[,j] = current_fit # update the new fit
-
-      } # End loop through trees
-
-    # y_hat = get_predictions(curr_trees, x, single_tree = ntrees == 1)
-    sum_of_squares = sum((y_scale - y_hat)^2)
-
-    # Update sigma2 (variance of the residuals)
-    sigma2 = update_sigma2(sum_of_squares, n = length(y_scale), nu, lambda)
-
-    # Update s = (s_1, ..., s_p), where s_p is the probability that predictor p is used to create new terminal nodes
-    if (sparse == 'TRUE' & i > floor(TotIter*0.1)){
-      s = update_s(var_count, p, 1)
-    }
-  } # End iterations loop
-
-  cat('\n') # Make sure progress bar ends on a new line
-
-  return(list(trees = tree_store,
-              sigma2 = sigma2_store*y_sd^2,
-              y_hat = y_hat_store*y_sd + y_mean,
-              npost = npost,
-              nburn = nburn,
-              nthin = nthin,
-              ntrees = ntrees,
-              y_mean = y_mean,
-              y_sd = y_sd,
-              var_count_store = var_count_store,
-              s = s_prob_store,
-              center = tempcenter,
-              scale = tempscale,
-              scaledtrainingdata = x
-              ))
-
-} # End main function
-
-
-
-#' @export
-#' @importFrom mvtnorm 'rmvnorm'
-#' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
-#' @importFrom MCMCpack 'rdirichlet'
-#' @importFrom truncnorm 'rtruncnorm'
-#' @importFrom rmutil 'ddoublepois'
-
-cl_bart = function(x,
-                   y,
-                   sparse = TRUE,
-                   ntrees = 10,
-                   node_min_size = 5,
-                   alpha = 0.95,
-                   beta = 2,
-                   nu = 3,
-                   lambda = 0.1,
-                   mu_mu = 0,
-                   sigma2 = 1,
-                   sigma2_mu = 1,
-                   nburn = 1000,
-                   npost = 1000,
-                   nthin = 1,
-                   penalise_num_cov = TRUE,
-                   lambda_cov = 0.4,
-                   nu_cov = 2) {
-
-  # Extract control parameters
-  node_min_size = node_min_size
-
-  # Extract MCMC details
-  TotIter = nburn + npost*nthin # Total of iterations
-
-  # Storage containers
-  store_size = npost
-  tree_store = vector('list', store_size)
-  sigma2_store = rep(NA, store_size)
-  y_hat_store = matrix(NA, ncol = length(y), nrow = store_size)
-  var_count = rep(0, ncol(x))
-  var_count_store = matrix(0, ncol = ncol(x), nrow = store_size)
-  s_prob_store = matrix(0, ncol = ncol(x), nrow = store_size)
-  tree_fits_store = matrix(0, ncol = ntrees, nrow = length(y))
-
-  # Scale the response target variable
-  n = length(y)
-  p = ncol(x)
-  s = rep(1/p, p)
-
-  # Initial values
-  z = ifelse(y == 0, -3, 3)
-
-  # Create a list of trees for the initial stump
-  curr_trees = create_stump(num_trees = ntrees,
-                            y = z,
-                            X = x)
-  # Initialise the new trees as current one
-  new_trees = curr_trees
-
-  # Initialise the predicted values to zero
-  y_hat = get_predictions(curr_trees, x, single_tree = ntrees == 1)
-
-  # Set up a progress bar
-  pb = utils::txtProgressBar(min = 1, max = TotIter,
-                             style = 3, width = 60,
-                             title = 'Running rBART...')
-
-  # Start the MCMC iterations loop
-  for (i in 1:TotIter) {
-
-    utils::setTxtProgressBar(pb, i)
-
-    # If at the right place, store everything
-    if((i > nburn) & ((i - nburn) %% nthin) == 0) {
-      curr = (i - nburn)/nthin
-      tree_store[[curr]] = curr_trees
-      sigma2_store[curr] = sigma2
-      y_hat_store[curr,] = pnorm(y_hat)
-      var_count_store[curr,] = var_count
-      s_prob_store[curr,] = s
-    }
-
-    # Start looping through trees
-    for (j in 1:ntrees) {
-
-      current_partial_residuals = z - y_hat + tree_fits_store[,j]
-
-      # Propose a new tree via grow/change/prune/swap
-      # type = sample(c('grow', 'prune', 'change', 'swap'), 1)
-      type = sample(c('grow', 'prune', 'change'), 1)
-      if(i < max(floor(0.1*nburn), 10)) type = 'grow' # Grow for the first few iterations
+    # Loop through trees
+    for (j in 1:m) {
+      # We need the new and old trees for the likelihoods
+      new_trees <- curr_trees
+
+      # # Obtain the type
+      # if (nrow(curr_trees[[j]]$tree_matrix) == 1) {
+      #   type <- "grow"
+      # } else {
+      #   type <- sample(c("grow", "prune", "change"), 1, prob = trans_prob)
+      # }
+
+
+      type = sample_move(curr_trees[[j]], i, 100 #n_burn
+                         )
 
       # Generate a new tree based on the current
-      new_trees[[j]] = update_tree(y = z,
-                                   X = x,
-                                   type = type,
-                                   curr_tree = curr_trees[[j]],
-                                   node_min_size = node_min_size,
-                                   s = s)
+      new_trees[[j]] <- update_tree(
+        y = y_scale,
+        X = X_scaled,
+        type = type,
+        curr_tree = curr_trees[[j]],
+        node_min_size = node_min_size,
+        s = s,
+        max_bad_trees = max_bad_trees
+      )
 
-      # CURRENT TREE: compute the log of the marginalised likelihood + log of the tree prior
-      l_old = tree_full_conditional(curr_trees[[j]],
-                                    current_partial_residuals,
-                                    sigma2,
-                                    sigma2_mu) +
-        get_tree_prior(curr_trees[[j]], alpha, beta) +
-        get_num_cov_prior(curr_trees[[j]], lambda_cov, nu_cov, penalise_num_cov)
+      # # Feature weighting
+      # if (feature_weighting) {
+      #   tree_splitvars <- curr_trees[[j]]$tree_matrix[, "split_variable"]
+      #   if (any(!is.na(tree_splitvars))) {
+      #     # Remove the NAs
+      #     splitvars <- sort(as.numeric(na.omit(tree_splitvars)))
+      #   } else {
+      #     # Else, return all variables
+      #     splitvars <- 1:p
+      #   }
+      # } else {
+      #   splitvars <- NA
+      # }
 
-      # NEW TREE: compute the log of the marginalised likelihood + log of the tree prior
-      l_new = tree_full_conditional(new_trees[[j]],
-                                    current_partial_residuals,
-                                    sigma2,
-                                    sigma2_mu) +
-        get_tree_prior(new_trees[[j]], alpha, beta)  +
-        get_num_cov_prior(new_trees[[j]], lambda_cov, nu_cov, penalise_num_cov)
+      # Performing the Gibbs sampler:
 
-      # Exponentiate the results above
-      a = exp(l_new - l_old)
+      # 1. MH step --------------------------------------------------------------
 
-      if(a > runif(1)) {
-        curr_trees[[j]] = new_trees[[j]]
+      # Calculate the attention weights and the log likelihood using both the current trees and the proposed trees
+      # (a) Calculations using the current trees
 
-        if (type =='change'){
-          var_count[curr_trees[[j]]$var[1]] = var_count[curr_trees[[j]]$var[1]] - 1
-          var_count[curr_trees[[j]]$var[2]] = var_count[curr_trees[[j]]$var[2]] + 1
-        }
-
-        if (type=='grow'){
-          var_count[curr_trees[[j]]$var] = var_count[curr_trees[[j]]$var] + 1 } # -1 because of the intercept in X
-
-        if (type=='prune'){
-          var_count[curr_trees[[j]]$var] = var_count[curr_trees[[j]]$var] - 1 } # -1 because of the intercept in X
+      if(const_tree_weights){
+        att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+      }else{
+        att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting)
       }
 
-      # Update mu whether tree accepted or not
-      curr_trees[[j]] = simulate_mu(curr_trees[[j]],
-                                    current_partial_residuals,
-                                    sigma2,
-                                    sigma2_mu)
-      # Updating BART predictions
-      current_fit = get_predictions(curr_trees[j], x, single_tree = TRUE)
-      y_hat = y_hat - tree_fits_store[,j] # subtract the old fit
-      y_hat = y_hat + current_fit # add the new fit
-      tree_fits_store[,j] = current_fit # update the new fit
+      if(any(is.na(att_weights_current))){
+        print("att_weights_current = ")
+        print(att_weights_current)
+        stop("attention weights contain nA")
+      }
 
+      if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001     )){
+        print("att_weights_current = ")
+        print(att_weights_current)
+
+        print("rowSums(att_weights_current) = ")
+        print(rowSums(att_weights_current))
+
+        print("which(rowSums(att_weights_current) != 1) = ")
+        print(which(rowSums(att_weights_current) != 1))
+
+
+        print("1 - rowSums(att_weights_current) = ")
+        print(1 - rowSums(att_weights_current))
+
+        stop("attention weights do not sum to 1")
+      }
+
+
+      # Create partial residuals conditional on the current tree
+      no_j <- c(1:m)[-j]
+      curr_partial_resid <- y_scale
+      for (tree_ind in no_j) {
+        curr_partial_resid <- curr_partial_resid - att_weights_current[, tree_ind] * get_prediction_no_w(curr_trees[[tree_ind]], X_scaled)
+      }
+      curr_partial_resid_rescaled <- curr_partial_resid / att_weights_current[, j]
+
+
+      # (b) Calculations using the proposed tree
+      if(const_tree_weights){
+        att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+      }else{
+        att_weights_new <- get_attention_no_w(new_trees, X_scaled, tau, feature_weighting)
+      }
+
+      if(any(is.na(att_weights_new))){
+        print("att_weights_new = ")
+        print(att_weights_new)
+        stop("attention weights contain nA")
+      }
+
+      if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001  )){
+        print("att_weights_new = ")
+        print(att_weights_new)
+
+        print("rowSums(att_weights_new) = ")
+        print(rowSums(att_weights_new))
+
+        print("which(rowSums(att_weights_new) != 1) = ")
+        print(which(rowSums(att_weights_new) != 1))
+
+
+        print("1 - rowSums(att_weights_new) = ")
+        print(1 - rowSums(att_weights_new))
+
+
+        stop("attention weights do not sum to 1")
+      }
+      # Create partial residuals conditional on the proposed tree
+      no_j <- c(1:m)[-j]
+      new_partial_resid <- y_scale
+      for (tree_ind in no_j) {
+        new_partial_resid <- new_partial_resid - att_weights_new[, tree_ind] * get_prediction_no_w(new_trees[[tree_ind]], X_scaled)
+      }
+      new_partial_resid_rescaled <- new_partial_resid / att_weights_new[, j]
+
+
+      # (c) Obtain the Metropolis-Hastings probability
+      curr_tree <- curr_trees[[j]]
+      new_tree <- new_trees[[j]]
+      alpha_MH <- get_MH_probability(
+        X = X_scaled, curr_tree, new_tree,
+        att_weights_current[, j], att_weights_new[, j],
+        curr_partial_resid_rescaled, new_partial_resid_rescaled,
+        type, trans_prob,
+        alpha, beta,
+        mu_mu, sigma2_mu, sigma2,
+        node_min_size
+      )
+
+      # Accept new tree with probability alpha. Save additional information
+      chosen_type <- type
+      if (runif_matrix[i, j] < alpha_MH) {
+        curr_trees[[j]] <- new_tree
+        curr_partial_resid_rescaled <- new_partial_resid_rescaled
+        att_weights_current <- att_weights_new
+
+        if (type == "grow") {
+          var_count[curr_trees[[j]]$var] <- var_count[curr_trees[[j]]$var] + 1
+        } else if (type == "prune") {
+          var_count[curr_trees[[j]]$var] <- var_count[curr_trees[[j]]$var] - 1
+        } else {
+          var_count[curr_trees[[j]]$var[1]] <- var_count[curr_trees[[j]]$var[1]] - 1 # What if change step returned $var equal to c(0,0) ????
+          var_count[curr_trees[[j]]$var[2]] <- var_count[curr_trees[[j]]$var[2]] + 1
+        }
+      } else {
+        type <- "reject"
+      }
+
+      # Store the alphas if at the right place
+      if ((i > n_burn) & ((i - n_burn) %% n_thin) == 0) {
+        curr <- (i - n_burn) / n_thin
+        alpha_MH_store[curr, j] <- alpha_MH
+        type_store[curr, j] <- type
+        chosen_type_store[curr, j] <- chosen_type
+      }
+
+      # 2. Update/Sample mu -----------------------------------------------------
+      curr_trees[[j]] <- att_simulate_mu(curr_trees[[j]], curr_partial_resid_rescaled, att_weights_current[, j], mu_mu, sigma2_mu, sigma2)
     } # End loop through trees
 
-    # Update z (latent variable)
-    z = update_z(y, y_hat)
-
-    # y_hat = get_predictions(curr_trees, x, single_tree = ntrees == 1)
-    sum_of_squares = sum((y - pnorm(y_hat))^2)
-
-    # Update sigma2 (variance of the residuals)
-    sigma2 = update_sigma2(sum_of_squares, n = n, nu, lambda)
-
-    # Update s = (s_1, ..., s_p), where s_p is the probability that predictor p is used to create new terminal nodes
-    if (sparse == 'TRUE' & i > floor(TotIter*0.1)){
-      s = update_s(var_count, p, 1)
+    # 3. Update/Sample sigma2 ---------------------------------------------------
+    y_hat <- rep(0, m)
+    for (j in 1:m) {
+      y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
     }
-  } # End iterations loop
+    sum_of_squares <- sum((y_scale - y_hat)^2)
 
-  cat('\n') # Make sure progress bar ends on a new line
+    sigma2 <- update_sigma2(S = sum_of_squares, n, nu, lambda)
 
-  return(list(trees = tree_store,
-              sigma2 = sigma2_store,
-              y_hat = y_hat_store,
-              npost = npost,
-              nburn = nburn,
-              nthin = nthin,
-              ntrees = ntrees,
-              var_count_store = var_count_store,
-              s = s_prob_store
+    # Update s = (s_1, ..., s_p), where s_p is the probability that predictor q in 1:p is used to create new terminal nodes
+    if (sparse & i > floor(n_iter * 0.1)) {
+      s <- update_s(var_count, p, alpha_s)
+    }
+
+    # If at the right place, store everything
+    if ((i > n_burn) & ((i - n_burn) %% n_thin) == 0) {
+      curr <- (i - n_burn) / n_thin
+
+      tree_store[[curr]] <- curr_trees
+      sigma2_store[curr] <- sigma2
+      y_hat_store[curr, ] <- y_hat
+      var_count_store[curr, ] <- var_count
+      s_prob_store[curr, ] <- s
+      att_weights_store[[curr]] <- att_weights_current
+    }
+    # pb$tick()
+  } # End loop through MCMC iterations
+
+  cat("\n") # Make sure progress bar ends on a new line
+
+  return(list(
+    trees = tree_store,
+    sigma2 = sigma2_store * y_sd^2,
+    y_hat =  (y_hat_store+(y_max + y_min)/2)*y_sd + y_mean,
+    var_count_store = var_count_store,
+    s = s_prob_store,
+    center = X_center,
+    scale = X_scale,
+    scaledtrainingdata = X_scaled,
+    MH_prob = alpha_MH_store,
+    att_weights = att_weights_store,
+    types = type_store,
+    chosen_types = chosen_type_store,
+    npost = n_post,
+    nburn = n_burn,
+    nthin = n_thin,
+    ntrees = m,
+    y_sd = y_sd,
+    y_mean = y_mean,
+    feature_weighting = feature_weighting,
+    tau = tau,
+    y_max = y_max,
+    y_min = y_min,
+    const_tree_weights = const_tree_weights
   ))
-
-} # End main function
+}

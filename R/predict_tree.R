@@ -1,6 +1,6 @@
 #' @export
 predict_attbart = function(object, newdata,
-                         type = c('all', 'median', 'mean')) {
+                           type = c('all', 'median', 'mean')) {
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
@@ -9,17 +9,17 @@ predict_attbart = function(object, newdata,
                      ncol = nrow(newdata))
 
 
-  print("nrow(newdata)= ")
-  print(nrow(newdata))
-
-  print("ncol(newdata)= ")
-  print(ncol(newdata))
-
-  print("object$scale= ")
-  print(object$scale)
-
-  print("object$center= ")
-  print(object$center)
+  # print("nrow(newdata)= ")
+  # print(nrow(newdata))
+  #
+  # print("ncol(newdata)= ")
+  # print(ncol(newdata))
+  #
+  # print("object$scale= ")
+  # print(object$scale)
+  #
+  # print("object$center= ")
+  # print(object$center)
 
   # newdata <- newdata * object$scale + object$center
 
@@ -27,11 +27,11 @@ predict_attbart = function(object, newdata,
   newdata2 <- scale(newdata, center = object$center, scale = object$scale)
 
 
-  print("nrow(newdata)= ")
-  print(nrow(newdata))
-
-  print("ncol(newdata)= ")
-  print(ncol(newdata))
+  # print("nrow(newdata2)= ")
+  # print(nrow(newdata2))
+  #
+  # print("ncol(newdata2)= ")
+  # print(ncol(newdata2))
 
   # Now loop through iterations and get predictions
   for (i in 1:n_its) {
@@ -49,9 +49,9 @@ predict_attbart = function(object, newdata,
 
   # Sort out what to return
   out = switch(type,
-               all = object$y_mean + object$y_sd * y_hat_mat,
-               mean = object$y_mean + object$y_sd * apply(y_hat_mat,2,'mean'),
-               median = object$y_mean + object$y_sd * apply(y_hat_mat,2,'median'))
+               all = object$y_mean + object$y_sd * (y_hat_mat + (object$y_max + object$y_min)/2 ) ,
+               mean = object$y_mean + object$y_sd * (apply(y_hat_mat,2,'mean') + (object$y_max + object$y_min)/2),
+               median = object$y_mean + object$y_sd * (apply(y_hat_mat,2,'median')+ (object$y_max + object$y_min)/2 ))
 
   return(out)
 
@@ -59,7 +59,8 @@ predict_attbart = function(object, newdata,
 
 #' @export
 predict_attbart_test = function(object, newdata,
-                           type = c('all', 'median', 'mean')) {
+                                type = c('all', 'median', 'mean'),
+                                weighttrees = TRUE) {
 
 
   xtrain <- object$scaledtrainingdata
@@ -71,17 +72,17 @@ predict_attbart_test = function(object, newdata,
                      ncol = nrow(newdata))
 
 
-  print("nrow(newdata)= ")
-  print(nrow(newdata))
-
-  print("ncol(newdata)= ")
-  print(ncol(newdata))
-
-  print("object$scale= ")
-  print(object$scale)
-
-  print("object$center= ")
-  print(object$center)
+  # print("nrow(newdata)= ")
+  # print(nrow(newdata))
+  #
+  # print("ncol(newdata)= ")
+  # print(ncol(newdata))
+  #
+  # print("object$scale= ")
+  # print(object$scale)
+  #
+  # print("object$center= ")
+  # print(object$center)
 
   # newdata <- newdata * object$scale + object$center
 
@@ -89,11 +90,11 @@ predict_attbart_test = function(object, newdata,
 
   # newdata <- (newdata -  object$center)/ object$scale
 
-  print("nrow(newdata)= ")
-  print(nrow(newdata))
-
-  print("ncol(newdata)= ")
-  print(ncol(newdata))
+  # print("nrow(newdata)= ")
+  # print(nrow(newdata))
+  #
+  # print("ncol(newdata)= ")
+  # print(ncol(newdata))
 
   # Now loop through iterations and get predictions
   for (i in 1:n_its) {
@@ -104,17 +105,36 @@ predict_attbart_test = function(object, newdata,
     # print(i)
 
     # Use get_predictions function to get predictions
-    y_hat_mat[i,] = get_predictions_test(curr_trees,
+    y_hat_mat[i,] = get_predictions_no_w_test(curr_trees,
                                          newdata2,
-                                    single_tree = length(curr_trees) == 1,
-                                    xtrain)
+                                         single_tree = length(curr_trees) == 1,
+                                         # xtrain,
+                                         tau = object$tau,
+                                         feature_weighting = object$feature_weighting,
+                                         const_tree_weights = object$const_tree_weights)
   }
+
+
+  print("y_hat_mat= ")
+  print(y_hat_mat)
+
+  print("object$y_max= ")
+  print(object$y_max)
+
+  print("object$y_min= ")
+  print(object$y_min)
+
+  print("object$y_sd= ")
+  print(object$y_sd)
+
+  print("object$y_mean= ")
+  print(object$y_mean)
 
   # Sort out what to return
   out = switch(type,
-               all = object$y_mean + object$y_sd * y_hat_mat,
-               mean = object$y_mean + object$y_sd * apply(y_hat_mat,2,'mean'),
-               median = object$y_mean + object$y_sd * apply(y_hat_mat,2,'median'))
+               all = object$y_mean + object$y_sd * (y_hat_mat + (object$y_max + object$y_min)/2 ) ,
+               mean = object$y_mean + object$y_sd * (apply(y_hat_mat,2,'mean') + (object$y_max + object$y_min)/2),
+               median = object$y_mean + object$y_sd * (apply(y_hat_mat,2,'median')+ (object$y_max + object$y_min)/2 ))
 
   return(out)
 
@@ -124,7 +144,7 @@ predict_attbart_test = function(object, newdata,
 
 #' @export
 marginal_predict_mybart = function(object, var_marg, newdata,
-                               type = c('all', 'median', 'mean')) {
+                                   type = c('all', 'median', 'mean')) {
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
@@ -178,8 +198,8 @@ marginal_predict_mybart = function(object, var_marg, newdata,
 
 #' @export
 predict_mybart_class = function(object,
-                                   newdata,
-                                   type = c('all', 'median', 'mean')) {
+                                newdata,
+                                type = c('all', 'median', 'mean')) {
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
@@ -211,7 +231,7 @@ predict_mybart_class = function(object,
 
 #' @export
 marginal_predict_mybart_class = function(object, var_marg, newdata,
-                                   type = c('all', 'median', 'mean')) {
+                                         type = c('all', 'median', 'mean')) {
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
