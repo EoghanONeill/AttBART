@@ -111,24 +111,27 @@ predict_attbart_test = function(object, newdata,
                                          # xtrain,
                                          tau = object$tau,
                                          feature_weighting = object$feature_weighting,
-                                         const_tree_weights = object$const_tree_weights)
+                                         const_tree_weights = object$const_tree_weights,
+                                         sq_num_features = object$sq_num_features,
+                                         splitprob_as_weights = object$splitprob_as_weights,
+                                         s = object$s[i,])
   }
 
 
-  print("y_hat_mat= ")
-  print(y_hat_mat)
-
-  print("object$y_max= ")
-  print(object$y_max)
-
-  print("object$y_min= ")
-  print(object$y_min)
-
-  print("object$y_sd= ")
-  print(object$y_sd)
-
-  print("object$y_mean= ")
-  print(object$y_mean)
+  # print("y_hat_mat= ")
+  # print(y_hat_mat)
+  #
+  # print("object$y_max= ")
+  # print(object$y_max)
+  #
+  # print("object$y_min= ")
+  # print(object$y_min)
+  #
+  # print("object$y_sd= ")
+  # print(object$y_sd)
+  #
+  # print("object$y_mean= ")
+  # print(object$y_mean)
 
   # Sort out what to return
   out = switch(type,

@@ -31,10 +31,22 @@ attBart_no_w <- function(Xtrain,
                          b = 1, # ????
                          seed = NA,
                          feature_weighting = FALSE,
+                         sq_num_features = TRUE,
                          sq_ydiff_sigmu = TRUE,
                          centre_y = TRUE,
-                         const_tree_weights = FALSE) { # Simple feature weighting
+                         const_tree_weights = FALSE,
+                         splitprob_as_weights = FALSE) { # Simple feature weighting
   if (!is.na(seed)) set.seed(seed)
+
+
+  if(sparse == FALSE){
+    splitprob_as_weights <- FALSE
+  }
+
+  if(splitprob_as_weights & feature_weighting){
+    stop(" Cannot have both feature_weighting and splitprob_as_weights equal to TRUE")
+
+  }
 
   # Transform y and X
   X_scaled <- scale(Xtrain)
@@ -75,7 +87,7 @@ attBart_no_w <- function(Xtrain,
 
   # sigma2_mu <- ((y_max - y_min) / (2 * k * sqrt(m)))^2
 
-
+  alpha_s <- 1
 
 
   n <- length(y_scale)
@@ -150,8 +162,8 @@ attBart_no_w <- function(Xtrain,
       # }
 
 
-      type = sample_move(curr_trees[[j]], i, 100 #n_burn
-                         )
+      type = sample_move(curr_trees[[j]], i, 100, #n_burn
+                         trans_prob)
 
       # Generate a new tree based on the current
       new_trees[[j]] <- update_tree(
@@ -188,7 +200,8 @@ attBart_no_w <- function(Xtrain,
       if(const_tree_weights){
         att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
       }else{
-        att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting)
+        att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                                  splitprob_as_weights, s)
       }
 
       if(any(is.na(att_weights_current))){
@@ -228,12 +241,18 @@ attBart_no_w <- function(Xtrain,
       if(const_tree_weights){
         att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
       }else{
-        att_weights_new <- get_attention_no_w(new_trees, X_scaled, tau, feature_weighting)
+        att_weights_new <- get_attention_no_w(new_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                              splitprob_as_weights, s)
       }
 
       if(any(is.na(att_weights_new))){
         print("att_weights_new = ")
         print(att_weights_new)
+
+        print("s = ")
+        print(s)
+
+
         stop("attention weights contain nA")
       }
 
@@ -278,7 +297,8 @@ attBart_no_w <- function(Xtrain,
 
       # Accept new tree with probability alpha. Save additional information
       chosen_type <- type
-      if (runif_matrix[i, j] < alpha_MH) {
+      # if ((runif_matrix[i, j] < alpha_MH) | i < 4 ) {
+      if ( runif_matrix[i, j] < alpha_MH  ) {
         curr_trees[[j]] <- new_tree
         curr_partial_resid_rescaled <- new_partial_resid_rescaled
         att_weights_current <- att_weights_new
@@ -360,6 +380,8 @@ attBart_no_w <- function(Xtrain,
     tau = tau,
     y_max = y_max,
     y_min = y_min,
-    const_tree_weights = const_tree_weights
+    const_tree_weights = const_tree_weights,
+    sq_num_features = sq_num_features,
+    splitprob_as_weights = splitprob_as_weights
   ))
 }
