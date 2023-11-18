@@ -107,16 +107,27 @@ grow_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
   n_bad_trees <- 0
   while(bad_tree){
     # Choose which node to split, set prob to zero for any nodes that are too small
-    node_to_split <- sample.vec(terminal_nodes, 1,
-                                prob = as.integer(terminal_node_size >= 2 * node_min_size)
-    )
+
+    # node_to_split <- sample.vec(terminal_nodes, 1,
+    #                             prob = as.integer(terminal_node_size >= 2 * node_min_size))
+    if(length(terminal_nodes)==1){
+      node_to_split <- terminal_nodes[1]
+    }else{
+      node_to_split <- sample(terminal_nodes, 1,
+                                  prob = as.integer(terminal_node_size >= 2 * node_min_size))
+    }
+
+
 
     # Choose a split variable using probability s (can be specified uniformly) from all columns
-    split_variable <- sample(1:ncol(X), 1, prob = s)
-    available_values <- sort(unique(X[
-      curr_tree$node_indices == node_to_split,
-      split_variable
-    ]))
+    # split_variable <- sample(1:ncol(X), 1, prob = s)
+    split_variable <- sample.int(ncol(X), 1, prob = s)
+    # available_values <- sort(unique(X[
+    #   curr_tree$node_indices == node_to_split,
+    #   split_variable
+    # ]), na.last = TRUE)
+
+    available_values <- collapse::funique(X[curr_tree$node_indices == node_to_split,split_variable], TRUE)
 
     # If the number of unique values in the chosen node of the chosen covariate is less then 2 * node_min_size,
     # then this is a bad tree choice!
@@ -285,7 +296,13 @@ change_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
     new_tree <- curr_tree
 
     # Choose a second generation node to change. DO NOT USE STANDARD sample(...), this uses a different build-in feature for vectors of length 1!
-    node_to_change <- sample.vec(gen2_nodes, 1)
+    # node_to_change <- sample.vec(gen2_nodes, 1)
+
+    if(length(gen2_nodes ==1)){
+      node_to_change <- gen2_nodes[1]
+    }else{
+      node_to_change <- sample(gen2_nodes, 1)
+    }
 
     # Get the covariate that will be changed
     var_changed_node <- as.numeric(new_tree$tree_matrix[node_to_change, "split_variable"])
@@ -298,11 +315,14 @@ change_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
 
     # Create new split variable and value based on ignorance
     # then check this doesn't give a bad tree
-    new_split_variable <- sample(1:ncol(X), 1, prob = s)
-    available_values <- sort(unique(X[
-      use_node_indices,
-      new_split_variable
-    ]))
+    # new_split_variable <- sample(1:ncol(X), 1, prob = s)
+    new_split_variable <- sample.int(ncol(X), 1, prob = s)
+    # available_values <- sort(unique(X[
+    #   use_node_indices,
+    #   new_split_variable
+    # ]))
+    available_values <- collapse::funique(X[use_node_indices,new_split_variable], TRUE)
+
     n_values <- length(available_values)
 
     # If there are not enough available values to at least assign node_min_size amount of observations to the left
@@ -399,11 +419,14 @@ change_tree_global <- function(y, X, curr_tree, node_min_size, s, max_bad_trees)
 
     # Create new split variable and value based on ignorance
     # then check this doesn't give a bad tree
-    new_split_variable <- sample(1:ncol(X), 1, prob = s)
-    available_values <- sort(unique(X[
-      use_node_indices,
-      new_split_variable
-    ]))
+    # new_split_variable <- sample(1:ncol(X), 1, prob = s)
+    new_split_variable <- sample.int(ncol(X), 1, prob = s)
+    # available_values <- sort(unique(X[
+    #   use_node_indices,
+    #   new_split_variable
+    # ]))
+    available_values <- collapse::funique(X[use_node_indices,new_split_variable], TRUE)
+
     n_values <- length(available_values)
 
     # If there are not enough available values to at least assign node_min_size amount of observations to the left

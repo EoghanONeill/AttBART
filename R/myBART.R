@@ -138,12 +138,57 @@ attBart_no_w <- function(Xtrain,
     X = X_scaled
   )
 
+  # if(const_tree_weights){
+  #   att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+  # }else{
+  #   att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+  #                                             splitprob_as_weights, s)
+  # }
+
+
+
+  if(const_tree_weights){
+    # att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+
+    att_weights_current_unnorm <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+    att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
+    att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+
+    att_weights_new_unnorm <- att_weights_current_unnorm
+    att_weights_new_denoms <- att_weights_current_denoms
+    att_weights_new <- att_weights_current
+
+  }else{
+    att_weights_current_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                              splitprob_as_weights, s)
+    att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
+    att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+
+    att_weights_new_unnorm <- att_weights_current_unnorm
+    att_weights_new_denoms <- att_weights_current_denoms
+    att_weights_new <- att_weights_current
+  }
+
+
   # Set up progress bar
   # pb <- progress_bar$new(total = n_iter, format = "MCMC iterations [:bar] :current/:total in :elapsedfull, ETA: :eta")
   # Set up a progress bar
   pb = utils::txtProgressBar(min = 1, max = n_iter,
                              style = 3, width = 60,
                              title = 'Running attBART...')
+
+
+
+  treepredmat <- matrix(NA, nrow = n, ncol = m)
+
+
+
+  for(j in 1:m){
+
+    treepredmat[,j] <- get_prediction_no_w(curr_trees[[j]], X_scaled)
+  }
+
+  y_hat_unnorm <- rowSums(treepredmat*att_weights_current_unnorm)
 
   # MCMC iterations loop
   for (i in 1:n_iter) {
@@ -197,88 +242,131 @@ attBart_no_w <- function(Xtrain,
       # Calculate the attention weights and the log likelihood using both the current trees and the proposed trees
       # (a) Calculations using the current trees
 
-      if(const_tree_weights){
-        att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
-      }else{
-        att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
-                                                  splitprob_as_weights, s)
-      }
-
-      if(any(is.na(att_weights_current))){
-        print("att_weights_current = ")
-        print(att_weights_current)
-        stop("attention weights contain nA")
-      }
-
-      if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001     )){
-        print("att_weights_current = ")
-        print(att_weights_current)
-
-        print("rowSums(att_weights_current) = ")
-        print(rowSums(att_weights_current))
-
-        print("which(rowSums(att_weights_current) != 1) = ")
-        print(which(rowSums(att_weights_current) != 1))
+      # if(const_tree_weights){
+      #   att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+      # }else{
+      #   att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+      #                                             splitprob_as_weights, s)
+      # }
+      #
+      #
+      # att_vec_current <- get_unnorm_att_1tree_no_w(curr_trees[[j]], X_scaled, tau, feature_weighting, sq_num_features,
+      #                           splitprob_as_weights, s)
 
 
-        print("1 - rowSums(att_weights_current) = ")
-        print(1 - rowSums(att_weights_current))
-
-        stop("attention weights do not sum to 1")
-      }
+      # if(any(is.na(att_weights_current))){
+      #   print("att_weights_current = ")
+      #   print(att_weights_current)
+      #   stop("attention weights contain nA")
+      # }
+      #
+      # if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001     )){
+      #   print("att_weights_current = ")
+      #   print(att_weights_current)
+      #
+      #   print("rowSums(att_weights_current) = ")
+      #   print(rowSums(att_weights_current))
+      #
+      #   print("which(rowSums(att_weights_current) != 1) = ")
+      #   print(which(rowSums(att_weights_current) != 1))
+      #
+      #
+      #   print("1 - rowSums(att_weights_current) = ")
+      #   print(1 - rowSums(att_weights_current))
+      #
+      #   print("iteration i = ")
+      #   print(i)
+      #
+      #   print("tree j = ")
+      #   print(j)
+      #
+      #
+      #   stop("attention weights do not sum to 1")
+      # }
 
 
       # Create partial residuals conditional on the current tree
-      no_j <- c(1:m)[-j]
-      curr_partial_resid <- y_scale
-      for (tree_ind in no_j) {
-        curr_partial_resid <- curr_partial_resid - att_weights_current[, tree_ind] * get_prediction_no_w(curr_trees[[tree_ind]], X_scaled)
-      }
+      # no_j <- c(1:m)[-j]
+      # curr_partial_resid <- y_scale
+      # for (tree_ind in no_j) {
+      #   curr_partial_resid <- curr_partial_resid - att_weights_current[, tree_ind] * treepredmat[,tree_ind]#get_prediction_no_w(curr_trees[[tree_ind]], X_scaled)
+      # }
+
+      # curr_partial_resid <- y_scale - rowSums(att_weights_current[, -j] * treepredmat[,-j])
+      curr_partial_resid <- y_scale - y_hat_unnorm/att_weights_current_denoms + att_weights_current[, j] * treepredmat[,j]
+
+
+
       curr_partial_resid_rescaled <- curr_partial_resid / att_weights_current[, j]
 
 
       # (b) Calculations using the proposed tree
+      # if(const_tree_weights){
+      #   att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+      # }else{
+      #   att_weights_new <- get_attention_no_w(new_trees, X_scaled, tau, feature_weighting, sq_num_features,
+      #                                         splitprob_as_weights, s)
+      # }
+
+      # att_weights_new_unnorm <- att_weights_current_unnorm
+
       if(const_tree_weights){
-        att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+        # att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
       }else{
-        att_weights_new <- get_attention_no_w(new_trees, X_scaled, tau, feature_weighting, sq_num_features,
-                                              splitprob_as_weights, s)
+        att_weights_new_unnorm <- att_weights_current_unnorm
+
+        att_weights_new_unnorm[,j] <- get_unnorm_att_1tree_no_w(new_trees[[j]], X_scaled, tau, feature_weighting, sq_num_features,
+                                                              splitprob_as_weights, s)
+        att_weights_new_denoms <- att_weights_current_denoms - att_weights_current_unnorm[,j] + att_weights_new_unnorm[,j]
+        att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
+
       }
 
-      if(any(is.na(att_weights_new))){
-        print("att_weights_new = ")
-        print(att_weights_new)
-
-        print("s = ")
-        print(s)
 
 
-        stop("attention weights contain nA")
-      }
 
-      if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001  )){
-        print("att_weights_new = ")
-        print(att_weights_new)
+      # if(any(is.na(att_weights_new))){
+      #   print("att_weights_new = ")
+      #   print(att_weights_new)
+      #
+      #   print("s = ")
+      #   print(s)
+      #
+      #
+      #   stop("attention weights contain nA")
+      # }
 
-        print("rowSums(att_weights_new) = ")
-        print(rowSums(att_weights_new))
-
-        print("which(rowSums(att_weights_new) != 1) = ")
-        print(which(rowSums(att_weights_new) != 1))
-
-
-        print("1 - rowSums(att_weights_new) = ")
-        print(1 - rowSums(att_weights_new))
-
-
-        stop("attention weights do not sum to 1")
-      }
+      # if(any(  abs(1 - rowSums(att_weights_current)) > 0.0001  )){
+      #   print("att_weights_new = ")
+      #   print(att_weights_new)
+      #
+      #   print("rowSums(att_weights_new) = ")
+      #   print(rowSums(att_weights_new))
+      #
+      #   print("which(rowSums(att_weights_new) != 1) = ")
+      #   print(which(rowSums(att_weights_new) != 1))
+      #
+      #
+      #   print("1 - rowSums(att_weights_new) = ")
+      #   print(1 - rowSums(att_weights_new))
+      #
+      #
+      #   stop("attention weights do not sum to 1")
+      # }
       # Create partial residuals conditional on the proposed tree
-      no_j <- c(1:m)[-j]
-      new_partial_resid <- y_scale
-      for (tree_ind in no_j) {
-        new_partial_resid <- new_partial_resid - att_weights_new[, tree_ind] * get_prediction_no_w(new_trees[[tree_ind]], X_scaled)
-      }
+      # no_j <- c(1:m)[-j]
+      # new_partial_resid <- y_scale
+      # for (tree_ind in no_j) {
+      #   new_partial_resid <- new_partial_resid - att_weights_new[, tree_ind] * treepredmat[,tree_ind]#get_prediction_no_w(new_trees[[tree_ind]], X_scaled)
+      # }
+
+      # new_partial_resid <- y_scale - rowSums(att_weights_new[, -j] * treepredmat[,-j])
+
+
+      y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
+      new_partial_resid <- y_scale - y_hat_unnorm_less_j /att_weights_new_denoms
+
+
       new_partial_resid_rescaled <- new_partial_resid / att_weights_new[, j]
 
 
@@ -295,6 +383,10 @@ attBart_no_w <- function(Xtrain,
         node_min_size
       )
 
+
+      # y_hat_unnorm <- y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j]
+
+
       # Accept new tree with probability alpha. Save additional information
       chosen_type <- type
       # if ((runif_matrix[i, j] < alpha_MH) | i < 4 ) {
@@ -302,7 +394,10 @@ attBart_no_w <- function(Xtrain,
         curr_trees[[j]] <- new_tree
         curr_partial_resid_rescaled <- new_partial_resid_rescaled
         att_weights_current <- att_weights_new
-
+        if(!const_tree_weights){
+          att_weights_current_unnorm <- att_weights_new_unnorm
+          att_weights_current_denoms <- att_weights_new_denoms
+        }
         if (type == "grow") {
           var_count[curr_trees[[j]]$var] <- var_count[curr_trees[[j]]$var] + 1
         } else if (type == "prune") {
@@ -325,13 +420,20 @@ attBart_no_w <- function(Xtrain,
 
       # 2. Update/Sample mu -----------------------------------------------------
       curr_trees[[j]] <- att_simulate_mu(curr_trees[[j]], curr_partial_resid_rescaled, att_weights_current[, j], mu_mu, sigma2_mu, sigma2)
+      treepredmat[,j] <- get_prediction_no_w(curr_trees[[j]], X_scaled)
+
+      y_hat_unnorm <- y_hat_unnorm_less_j + treepredmat[,j] * att_weights_current_unnorm[, j]
+
     } # End loop through trees
 
     # 3. Update/Sample sigma2 ---------------------------------------------------
-    y_hat <- rep(0, m)
-    for (j in 1:m) {
-      y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
-    }
+    # y_hat <- rep(0, m)
+    # for (j in 1:m) {
+    #   # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
+    #   y_hat <- y_hat + treepredmat[,j] * att_weights_current[, j]
+    # }
+
+    y_hat <- y_hat_unnorm/att_weights_current_denoms   # rowSums(treepredmat*att_weights_current)
     sum_of_squares <- sum((y_scale - y_hat)^2)
 
     sigma2 <- update_sigma2(S = sum_of_squares, n, nu, lambda)

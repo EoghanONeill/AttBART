@@ -38,17 +38,21 @@ fill_tree_details <- function(curr_tree, X) {
       split_val <- tree_matrix[curr_parent, "split_value"]
 
       # Find whether it's a left or right terminal node
-      left_or_right <- ifelse(tree_matrix[curr_parent, "child_left"] == i,
-                              "left", "right"
-      )
-      if (left_or_right == "left") {
-        # If left use less than condition
+      # left_or_right <- ifelse(tree_matrix[curr_parent, "child_left"] == i,
+      #                         "left", "right"
+      # )
+      # if (left_or_right == "left") {
+      if (tree_matrix[curr_parent, "child_left"] == i) {
+          # If left use less than condition
         new_tree_matrix[i, "node_size"] <- sum(X[node_indices == curr_parent, split_var] < split_val)
         node_indices[node_indices == curr_parent][X[node_indices == curr_parent, split_var] < split_val] <- i
       } else {
         # If right use greater than condition
-        new_tree_matrix[i, "node_size"] <- sum(X[node_indices == curr_parent, split_var] >= split_val)
-        node_indices[node_indices == curr_parent][X[node_indices == curr_parent, split_var] >= split_val] <- i
+        # new_tree_matrix[i, "node_size"] <- sum(X[node_indices == curr_parent, split_var] >= split_val)
+        # node_indices[node_indices == curr_parent][X[node_indices == curr_parent, split_var] >= split_val] <- i
+        # remaining indices must be greater than or equal
+        new_tree_matrix[i, "node_size"] <- sum(node_indices == curr_parent)
+        node_indices[node_indices == curr_parent] <- i
       }
     }
   }
@@ -122,7 +126,7 @@ get_prediction_no_w <- function(tree, X) {
 
   # Stump trees just have one prediction value
   if (nrow(tree$tree_matrix) == 1) {
-    predictions <- rep(tree$tree_matrix[[1, "mu"]], nrow(X))
+    predictions <- rep(tree$tree_matrix[1, "mu"], nrow(X))
   } else {
     # Loop through the node indices to get predictions
     predictions <- rep(NA, nrow(X))
@@ -130,7 +134,7 @@ get_prediction_no_w <- function(tree, X) {
     unique_node_indices <- unique(curr_X_node_indices)
 
     for (i in unique_node_indices) {
-      predictions[curr_X_node_indices == i] <- tree$tree_matrix[[i, "mu"]]
+      predictions[curr_X_node_indices == i] <- tree$tree_matrix[i, "mu"] # tree$tree_matrix[[i, "mu"]]
     }
   }
 
@@ -213,6 +217,354 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
 
   return(predictions)
 }
+
+
+
+# get unnormalized attention for one tree --------------------------------------------------
+
+
+get_unnorm_att_1tree_no_w <- function(curr_tree, X, tau = 1, feature_weighting, sq_num_features,
+                               splitprob_as_weights,
+                               s) {
+  # To calculate attention weights:
+  #  1. For each tree, find the leaf for each training observation x_i
+  #  2. For each tree, obtain leaf covariate means A_j(x_i) (vectors)
+  #  3. For each tree and observation, (a) subtract the covariate mean of the relevant leaf,
+  #        (b) square the difference, (c) divide by 2*tau and (d) then take the exponential
+  #  4. After all the calculations for all trees and observations, normalise the weights of
+  #        the observations over the trees to sum to 1 using the softmax function
+
+
+
+  # Matrix of observation and tree-specific unnormalised weights
+  # weight_exp_matrix <- matrix(NA,
+  #                             nrow = nrow(X),
+  #                             ncol = length(trees)
+  # )
+
+  # Get attention weights for each tree j
+  # for (j in 1:length(trees)) {
+  #
+  #
+  #   # Find the current terminal nodes (leaves)
+  #   curr_tree <- trees[[j]]
+
+
+    if(!splitprob_as_weights){
+      # Feature weighting
+      if (feature_weighting) {
+        tree_splitvars <- curr_tree$tree_matrix[, "split_variable"]
+        if (any(!is.na(tree_splitvars))) {
+          # Remove the NAs
+          splitvars <- unique(na.omit(tree_splitvars))
+          # splitvars <- sort(unique(na.omit(tree_splitvars)), na.last = TRUE)
+          # splitvars <- sort(na.omit(tree_splitvars), na.last = TRUE)
+          # splitvars <- sort(na.omit(tree_splitvars), na.last = TRUE)
+        } else {
+          # Else, return all variables
+          splitvars <- 1:ncol(X)
+        }
+      } else {
+        splitvars <- NA
+      }
+    }
+
+    X_node_indices <- curr_tree$node_indices
+    # unique_leaf_indices <- unique(X_node_indices)
+
+
+
+    # Calculate the L2 norm and unnormalised weights splitvars is NA when no
+    # feature weighting is specified and a vector of either length 1 up to
+    # length p
+
+    if(splitprob_as_weights){
+
+      # # Initialise mean matrix
+      # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+      #
+      # # Calculate the means A_j(x_i)
+      # for (l in unique_leaf_indices) {
+      #   leaf_indices <- X_node_indices == l
+      #   mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, ]), each = sum(leaf_indices))
+      # }
+
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[X_node_indices,]
+
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+
+      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+      # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
+      X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # if(sq_num_features){
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # }else{
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)
+      # }
+
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      # weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
+      weight_exp_vec <- exp(-1 * X_L2_sq / (2 * tau) )
+
+    }else{
+
+      if (any(!is.na(splitvars))) {
+
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = length(splitvars))
+        # t_mean_matrix <- matrix(NA, nrow = length(splitvars) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, splitvars, drop = FALSE])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
+
+        # colmeanmat <- fmean(X[, splitvars, drop = FALSE], X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+        #
+        # # X_diff_sq <- (X[, splitvars] - mean_matrix[, splitvars])^2
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - mean_matrix)^2
+
+
+        X_diff_sq <- fmean(X[, splitvars, drop = FALSE], X_node_indices, TRA = "-")^2
+
+
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - t(t_mean_matrix))^2
+        # If splitvars only has one variable, then rowSums does not work
+        if (length(splitvars) == 1) {
+          X_L2_sq <- X_diff_sq
+        } else {
+          if(sq_num_features){
+            X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)^2
+          }else{
+            X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)
+          }
+        }
+      } else {
+
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+        # t_mean_matrix <- matrix(NA, nrow = ncol(X) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, ])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
+
+        # mean_matrix <- fmean(X, X_node_indices)
+        # colmeanmat <- fmean(X, X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+
+        X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+        # X_diff_sq <- ((X - mean_matrix)^2)
+        # X_diff_sq <- ((X - t(t_mean_matrix))^2)
+        if(sq_num_features){
+          X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)^2
+        }else{
+          X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)
+        }
+      }
+
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      weight_exp_vec <- exp(-1 * X_L2_sq / (2 * tau))
+
+    }
+  # }
+
+  # weight_exp_matrix <- exp(weight_exp_matrix)
+
+  # Normalize distances to obtain softmax weights by divide each row by the row sum
+  # att_weights <- t(apply(weight_exp_matrix, 1, function(x) x / sum(x)))
+  # att_weights <- weight_exp_matrix/rowSums(weight_exp_matrix)  #t(apply(weight_exp_matrix, 1, function(x) x / sum(x)))
+
+  return(weight_exp_vec)
+}
+
+
+
+
+# Get unnormalized attention for all treesv-----------------------------------------------------------
+
+get_unnorm_att_all_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_features,
+                               splitprob_as_weights,
+                               s) {
+  # To calculate attention weights:
+  #  1. For each tree, find the leaf for each training observation x_i
+  #  2. For each tree, obtain leaf covariate means A_j(x_i) (vectors)
+  #  3. For each tree and observation, (a) subtract the covariate mean of the relevant leaf,
+  #        (b) square the difference, (c) divide by 2*tau and (d) then take the exponential
+  #  4. After all the calculations for all trees and observations, normalise the weights of
+  #        the observations over the trees to sum to 1 using the softmax function
+
+
+
+  # Matrix of observation and tree-specific unnormalised weights
+  weight_exp_matrix <- matrix(NA,
+                              nrow = nrow(X),
+                              ncol = length(trees)
+  )
+
+  # Get attention weights for each tree j
+  for (j in 1:length(trees)) {
+
+
+    # Find the current terminal nodes (leaves)
+    curr_tree <- trees[[j]]
+
+
+    if(!splitprob_as_weights){
+      # Feature weighting
+      if (feature_weighting) {
+        tree_splitvars <- curr_tree$tree_matrix[, "split_variable"]
+        if (any(!is.na(tree_splitvars))) {
+          # Remove the NAs
+          splitvars <- unique(na.omit(tree_splitvars))
+          # splitvars <- sort(unique(na.omit(tree_splitvars)), na.last = TRUE)
+          # splitvars <- sort(na.omit(tree_splitvars), na.last = TRUE)
+          # splitvars <- sort(na.omit(tree_splitvars), na.last = TRUE)
+        } else {
+          # Else, return all variables
+          splitvars <- 1:ncol(X)
+        }
+      } else {
+        splitvars <- NA
+      }
+    }
+
+    X_node_indices <- curr_tree$node_indices
+    # unique_leaf_indices <- unique(X_node_indices)
+
+
+
+    # Calculate the L2 norm and unnormalised weights splitvars is NA when no
+    # feature weighting is specified and a vector of either length 1 up to
+    # length p
+
+    if(splitprob_as_weights){
+
+      # # Initialise mean matrix
+      # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+      #
+      # # Calculate the means A_j(x_i)
+      # for (l in unique_leaf_indices) {
+      #   leaf_indices <- X_node_indices == l
+      #   mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, ]), each = sum(leaf_indices))
+      # }
+
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[X_node_indices,]
+
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+
+      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+      # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
+      X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # if(sq_num_features){
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # }else{
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)
+      # }
+
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
+
+    }else{
+
+      if (any(!is.na(splitvars))) {
+
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = length(splitvars))
+        # t_mean_matrix <- matrix(NA, nrow = length(splitvars) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, splitvars, drop = FALSE])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
+
+        # colmeanmat <- fmean(X[, splitvars, drop = FALSE], X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+        #
+        # # X_diff_sq <- (X[, splitvars] - mean_matrix[, splitvars])^2
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - mean_matrix)^2
+
+
+        X_diff_sq <- fmean(X[, splitvars, drop = FALSE], X_node_indices, TRA = "-")^2
+
+
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - t(t_mean_matrix))^2
+        # If splitvars only has one variable, then rowSums does not work
+        if (length(splitvars) == 1) {
+          X_L2_sq <- X_diff_sq
+        } else {
+          if(sq_num_features){
+            X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)^2
+          }else{
+            X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)
+          }
+        }
+      } else {
+
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+        # t_mean_matrix <- matrix(NA, nrow = ncol(X) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, ])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
+
+        # mean_matrix <- fmean(X, X_node_indices)
+        # colmeanmat <- fmean(X, X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+
+        X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+        # X_diff_sq <- ((X - mean_matrix)^2)
+        # X_diff_sq <- ((X - t(t_mean_matrix))^2)
+        if(sq_num_features){
+          X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)^2
+        }else{
+          X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)
+        }
+      }
+
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
+
+    }
+  }
+
+  weight_exp_matrix <- exp(weight_exp_matrix)
+
+  # Normalize distances to obtain softmax weights by divide each row by the row sum
+  # att_weights <- t(apply(weight_exp_matrix, 1, function(x) x / sum(x)))
+  att_weights <- weight_exp_matrix#/rowSums(weight_exp_matrix)  #t(apply(weight_exp_matrix, 1, function(x) x / sum(x)))
+
+  return(att_weights)
+}
+
 # Get attention -----------------------------------------------------------
 
 get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_features,
@@ -262,7 +614,7 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
     }
 
     X_node_indices <- curr_tree$node_indices
-    unique_leaf_indices <- unique(X_node_indices)
+    # unique_leaf_indices <- unique(X_node_indices)
 
 
 
@@ -272,40 +624,62 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
 
     if(splitprob_as_weights){
 
-      # Initialise mean matrix
-      mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+      # # Initialise mean matrix
+      # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+      #
+      # # Calculate the means A_j(x_i)
+      # for (l in unique_leaf_indices) {
+      #   leaf_indices <- X_node_indices == l
+      #   mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, ]), each = sum(leaf_indices))
+      # }
 
-      # Calculate the means A_j(x_i)
-      for (l in unique_leaf_indices) {
-        leaf_indices <- X_node_indices == l
-        mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, ]), each = sum(leaf_indices))
-      }
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[X_node_indices,]
 
-      X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
-      if(sq_num_features){
-        X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
-      }else{
-        X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)
-      }
+      # colmeanmat <- fmean(X, X_node_indices)
+      # mean_matrix <- colmeanmat[as.character(X_node_indices),]
 
-      weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+      # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
+      X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # if(sq_num_features){
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
+      # }else{
+      #   X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)
+      # }
+
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
 
     }else{
 
       if (any(!is.na(splitvars))) {
 
-        # Initialise mean matrix
-        mean_matrix <- matrix(NA, nrow = nrow(X), ncol = length(splitvars))
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = length(splitvars))
+        # t_mean_matrix <- matrix(NA, nrow = length(splitvars) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, splitvars, drop = FALSE])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
 
-        # Calculate the means A_j(x_i)
-        for (l in unique_leaf_indices) {
-          leaf_indices <- X_node_indices == l
-          mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, splitvars, drop = FALSE]), each = sum(leaf_indices))
-        }
+        # colmeanmat <- fmean(X[, splitvars, drop = FALSE], X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
+        #
+        # # X_diff_sq <- (X[, splitvars] - mean_matrix[, splitvars])^2
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - mean_matrix)^2
 
 
-        # X_diff_sq <- (X[, splitvars] - mean_matrix[, splitvars])^2
-        X_diff_sq <- (X[, splitvars, drop = FALSE] - mean_matrix)^2
+        X_diff_sq <- fmean(X[, splitvars, drop = FALSE], X_node_indices, TRA = "-")^2
+
+
+        # X_diff_sq <- (X[, splitvars, drop = FALSE] - t(t_mean_matrix))^2
         # If splitvars only has one variable, then rowSums does not work
         if (length(splitvars) == 1) {
           X_L2_sq <- X_diff_sq
@@ -318,16 +692,27 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
         }
       } else {
 
-        # Initialise mean matrix
-        mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+        # # Initialise mean matrix
+        # # mean_matrix <- matrix(NA, nrow = nrow(X), ncol = ncol(X))
+        # t_mean_matrix <- matrix(NA, nrow = ncol(X) , ncol = nrow(X))
+        #
+        # # Calculate the means A_j(x_i)
+        # for (l in unique_leaf_indices) {
+        #   leaf_indices <- X_node_indices == l
+        #   tempcolmeans <- colMeans(X[leaf_indices, ])
+        #   t_mean_matrix[, leaf_indices] <- tempcolmeans
+        #
+        #   # mean_matrix[leaf_indices, ] <- rep(tempcolmeans, each = sum(leaf_indices))
+        # }
 
-        # Calculate the means A_j(x_i)
-        for (l in unique_leaf_indices) {
-          leaf_indices <- X_node_indices == l
-          mean_matrix[leaf_indices, ] <- rep(colMeans(X[leaf_indices, ]), each = sum(leaf_indices))
-        }
+        # mean_matrix <- fmean(X, X_node_indices)
+        # colmeanmat <- fmean(X, X_node_indices)
+        # mean_matrix <- colmeanmat[as.character(X_node_indices),]
 
-        X_diff_sq <- ((X - mean_matrix)^2)
+        X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+
+        # X_diff_sq <- ((X - mean_matrix)^2)
+        # X_diff_sq <- ((X - t(t_mean_matrix))^2)
         if(sq_num_features){
           X_L2_sq <- rowSums(X_diff_sq)/ length(splitvars)^2
         }else{
@@ -335,10 +720,13 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
         }
       }
 
-      weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
+      weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
 
     }
   }
+
+  weight_exp_matrix <- exp(weight_exp_matrix)
 
   # Normalize distances to obtain softmax weights by divide each row by the row sum
   # att_weights <- t(apply(weight_exp_matrix, 1, function(x) x / sum(x)))
@@ -354,10 +742,11 @@ get_gen2 <- function(tree) {
   if (nrow(tree$tree_matrix) == 1) {
     w <- 0
   } else {
-    indeces <- which(tree$tree_matrix[, "terminal"] == "1")
+    # indeces <- which(tree$tree_matrix[, "terminal"] == 1)
     # Determine the parent for each terminal node and find the duplicated parents
     # w <- as.numeric(sum(duplicated(tree$tree_matrix[indeces,'parent'])))
-    parents <- tree$tree_matrix[indeces, "parent"]
+    # parents <- tree$tree_matrix[indeces, "parent"]
+    parents <- tree$tree_matrix[tree$tree_matrix[, "terminal"] == 1, "parent"]
     w <- parents[duplicated(parents)]
   }
   return(w)
@@ -429,32 +818,38 @@ get_MH_probability <- function(X, curr_tree, new_tree,
     # The chosen node that it used to grow is the parent of the newly added last two rows in the NEW tree
     node_to_split <- as.numeric(new_tree$tree_matrix[nrow(new_tree$tree_matrix), "parent"])
     # Get the number of unique values for each covariate given the chosen node to split on in the CURRENT tree
-    n_unique <- get_n_unique(curr_tree, X, node_to_split)
+    # n_unique <- get_n_unique(curr_tree, X, node_to_split)
     # Get the chosen covariate that it used to split on, which is the split variable in the NEW tree
-    covariate_to_split <- new_tree$tree_matrix[node_to_split, "split_variable"]
+    # covariate_to_split <- new_tree$tree_matrix[node_to_split, "split_variable"]
     # Obtain the additional parameters needed for the tree and transition ratios
-    p_j <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
-    n_j <- n_unique[covariate_to_split] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
+    # p_j <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
+    # n_j <- n_unique[covariate_to_split] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
     w_2_star <- length(get_gen2(new_tree)) # Number of second generation nodes in the NEW tree
     depth_jl <- get_depth(curr_tree, node_to_split) # The depth of the chosen node to split on (in either the current or new tree)
 
-    tree_ratio <- alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 / (((1 + depth_jl)^beta - alpha) * p_j * n_j)
-    transition_ratio <- prob_prune / prob_grow * b_j * p_j * n_j / w_2_star
+    # tree_ratio <- alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 / (((1 + depth_jl)^beta - alpha) * p_j * n_j)
+    # transition_ratio <- prob_prune / prob_grow * b_j * p_j * n_j / w_2_star
+
+    tree_ratio <- alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 / (((1 + depth_jl)^beta - alpha) )
+    transition_ratio <- prob_prune / prob_grow * b_j  / w_2_star # maybe this should be (w_2_star + 1) ?
   } else if (type == "prune") {
     # Finding the node used to prune is a bit more difficult then finding the node to split on
     pruned_node <- get_pruned_node(curr_tree, new_tree)
     # Get the number of unique values for each covariate given the chosen node it pruned on in the NEW tree
-    n_unique <- get_n_unique(new_tree, X, pruned_node)
+    # n_unique <- get_n_unique(new_tree, X, pruned_node)
     # Get the covariate that was used in the pruned node, which is the split variable in the CURRENT tree
-    pruned_covariate <- curr_tree$tree_matrix[pruned_node, "split_variable"]
+    # pruned_covariate <- curr_tree$tree_matrix[pruned_node, "split_variable"]
     # Obtain the additional parameters needed for the tree and transition ratios
-    p_j_star <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
-    n_j_star <- n_unique[pruned_covariate] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
+    # p_j_star <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
+    # n_j_star <- n_unique[pruned_covariate] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
     w_2 <- length(get_gen2(curr_tree)) # Number of second generation nodes in the CURRENT tree
     depth_jl <- get_depth(new_tree, pruned_node) # The depth of the chosen node to split on (in either the current or new tree)
 
-    tree_ratio <- ((1 + depth_jl)^beta - alpha) * p_j_star * n_j_star / (alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
-    transition_ratio <- prob_grow / prob_prune * w_2 / ((b_j - 1) * p_j_star * n_j_star)
+    # tree_ratio <- ((1 + depth_jl)^beta - alpha) * p_j_star * n_j_star / (alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
+    # transition_ratio <- prob_grow / prob_prune * w_2 / ((b_j - 1) * p_j_star * n_j_star)
+
+    tree_ratio <- ((1 + depth_jl)^beta - alpha)  / (alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
+    transition_ratio <- prob_grow / prob_prune * w_2 / ((b_j - 1) )
   } else {
     # For the changing step, the tree and transition ratios cancel out into a factor of 1
     transition_ratio <- 1
@@ -637,9 +1032,9 @@ att_simulate_mu <- function(tree, residuals, att_weights, mu_mu, sigma2_mu, sigm
                                                   mean = mean_vec,
                                                   sd = sqrt(var_vec))
 
-  if (any(is.na(tree$tree_matrix[terminal_nodes, "mu"]))) {
-    stop("Some terminal nodes do not have a prediction!")
-  }
+  # if (any(is.na(tree$tree_matrix[terminal_nodes, "mu"]))) {
+  #   stop("Some terminal nodes do not have a prediction!")
+  # }
 
   return(tree)
 }
