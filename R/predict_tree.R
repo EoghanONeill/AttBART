@@ -96,8 +96,19 @@ predict_attbart_test = function(object, newdata,
   # print("ncol(newdata)= ")
   # print(ncol(newdata))
 
+
+  # Set up progress bar
+  # pb <- progress_bar$new(total = n_iter, format = "MCMC iterations [:bar] :current/:total in :elapsedfull, ETA: :eta")
+  # Set up a progress bar
+  pb = utils::txtProgressBar(min = 1, max = n_its,
+                             style = 3, width = 60,
+                             title = 'Running attBART...')
+
+
   # Now loop through iterations and get predictions
   for (i in 1:n_its) {
+    utils::setTxtProgressBar(pb, i)
+
     # Get current set of trees
     curr_trees = object$trees[[i]]
 

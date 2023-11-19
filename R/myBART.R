@@ -27,15 +27,18 @@ attBart_no_w <- function(Xtrain,
                          trans_prob = c(2.5, 2.5, 4) / 9, # Probabilities to grow, prune or change, respectively
                          max_bad_trees = 10,
                          sparse = FALSE, # The feature weighting of the DART model
-                         a = 0.5, # ????
-                         b = 1, # ????
+                         alpha_a = 0.5, # Linero alpha prior parameter
+                         alpha_b = 1, # Linero alpha prior parameter
                          seed = NA,
                          feature_weighting = FALSE,
                          sq_num_features = TRUE,
                          sq_ydiff_sigmu = TRUE,
                          centre_y = TRUE,
                          const_tree_weights = FALSE,
-                         splitprob_as_weights = FALSE) { # Simple feature weighting
+                         splitprob_as_weights = FALSE,
+                         tau = 1,
+                         alpha_prior = FALSE,
+                         sigma_mu_prior = FALSE) { # Simple feature weighting
   if (!is.na(seed)) set.seed(seed)
 
 
@@ -82,18 +85,21 @@ attBart_no_w <- function(Xtrain,
     sigma2_mu <- ((max(y_scale)-min(y_scale))*sqrt(m)/(2 * k))^2
   }else{
     # sigma2_mu <- (max(y_scale)-min(y_scale))/((2 * k * sqrt(m))^2)
-    sigma2_mu <- (max(y_scale)-min(y_scale))*sqrt(m)/((2 * k)^2)
+    sigma2_mu <- (max(y_scale)-min(y_scale))*m/((2 * k)^2)
   }
 
   # sigma2_mu <- ((y_max - y_min) / (2 * k * sqrt(m)))^2
 
-  alpha_s <- 1
 
 
   n <- length(y_scale)
   p <- ncol(X_scaled)
   s <- rep(1 / p, p) # probability vector to be used during the growing process for DART feature weighting
   rho <- p # For DART
+
+  alpha_s <- 1 # p
+
+  alpha_scale <- p
 
   if (is.na(sigest)) {
     if (p < n) {
@@ -113,7 +119,7 @@ attBart_no_w <- function(Xtrain,
   #   tau <- sigmaf / sqrt(m)
   # }
   sigma2 <- sigest^2
-  tau <- 1
+  # tau <- 1
 
   # Total number of MCMC iterations
   n_iter <- n_burn + n_post * n_thin
@@ -207,7 +213,7 @@ attBart_no_w <- function(Xtrain,
       # }
 
 
-      type = sample_move(curr_trees[[j]], i, 100, #n_burn
+      type = sample_move(curr_trees[[j]], i, 0, #n_burn
                          trans_prob)
 
       # Generate a new tree based on the current
@@ -439,8 +445,17 @@ attBart_no_w <- function(Xtrain,
     sigma2 <- update_sigma2(S = sum_of_squares, n, nu, lambda)
 
     # Update s = (s_1, ..., s_p), where s_p is the probability that predictor q in 1:p is used to create new terminal nodes
-    if (sparse & i > floor(n_iter * 0.1)) {
+    if (sparse & i > floor(n_burn * 0.5)) {
       s <- update_s(var_count, p, alpha_s)
+      if(alpha_prior){
+        alpha_s <- update_alpha(s, alpha_scale, alpha_a, alpha_b)
+      }
+    }
+
+
+
+    if(sigma_mu_prior){
+      sigma2_mu <-  update_sigmu(curr_trees, sigma2_mu)
     }
 
     # If at the right place, store everything

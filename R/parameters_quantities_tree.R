@@ -287,42 +287,42 @@
 #   return(z)
 # }
 #
-# # Get tree priors ---------------------------------------------------------
-#
-#   get_tree_prior = function(tree, alpha, beta) {
-#
-#   # Need to work out the depth of the tree
-#   # First find the level of each node, then the depth is the maximum of the level
-#   level = rep(NA, nrow(tree$tree_matrix))
-#   level[1] = 0 # First row always level 0
-#
-#   # Escpae quickly if tree is just a stump
-#   if(nrow(tree$tree_matrix) == 1) {
-#     return(log(1 - alpha)) # Tree depth is 0
-#   }
-#
-#   for(i in 2:nrow(tree$tree_matrix)) {
-#     # Find the current parent
-#     curr_parent = as.numeric(tree$tree_matrix[i,'parent'])
-#     # This child must have a level one greater than it's current parent
-#     level[i] = level[curr_parent] + 1
-#   }
-#
-#   # Only compute for the internal nodes
-#   internal_nodes = which(as.numeric(tree$tree_matrix[,'terminal']) == 0)
-#   log_prior = 0
-#   for(i in 1:length(internal_nodes)) {
-#     log_prior = log_prior + log(alpha) - beta * log(1 + level[internal_nodes[i]])
-#   }
-#   # Now add on terminal nodes
-#   terminal_nodes = which(as.numeric(tree$tree_matrix[,'terminal']) == 1)
-#   for(i in 1:length(terminal_nodes)) {
-#     log_prior = log_prior + log(1 - alpha * ((1 + level[terminal_nodes[i]])^(-beta)))
-#   }
-#
-#   return(log_prior)
-#
-#   }
+# Get tree priors ---------------------------------------------------------
+
+get_tree_prior = function(tree, alpha, beta) {
+
+  # Need to work out the depth of the tree
+  # First find the level of each node, then the depth is the maximum of the level
+  level = rep(NA, nrow(tree$tree_matrix))
+  level[1] = 0 # First row always level 0
+
+  # Escpae quickly if tree is just a stump
+  if(nrow(tree$tree_matrix) == 1) {
+    return(log(1 - alpha)) # Tree depth is 0
+  }
+
+  for(i in 2:nrow(tree$tree_matrix)) {
+    # Find the current parent
+    curr_parent = as.numeric(tree$tree_matrix[i,'parent'])
+    # This child must have a level one greater than it's current parent
+    level[i] = level[curr_parent] + 1
+  }
+
+  # Only compute for the internal nodes
+  internal_nodes = which(as.numeric(tree$tree_matrix[,'terminal']) == 0)
+  log_prior = 0
+  for(i in 1:length(internal_nodes)) {
+    log_prior = log_prior + log(alpha) - beta * log(1 + level[internal_nodes[i]])
+  }
+  # Now add on terminal nodes
+  terminal_nodes = which(as.numeric(tree$tree_matrix[,'terminal']) == 1)
+  for(i in 1:length(terminal_nodes)) {
+    log_prior = log_prior + log(1 - alpha * ((1 + level[terminal_nodes[i]])^(-beta)))
+  }
+
+  return(log_prior)
+
+}
 #
 # get_num_cov_prior <- function(tree, lambda_cov, nu_cov, penalise_num_cov){
 #
@@ -369,18 +369,36 @@
 #   return(L)
 # }
 #
-# # The ratio grow function calculates ratio of transition probabilities of the grow step
-# # This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
-# ratio_grow = function(curr_tree,new_tree){
-#   grow_ratio = get_nterminal(curr_tree)/(get_w(new_tree)+1)
-#   return(grow_ratio)
-# }
-#
-# # The ratio prune function calculates ratio of transition probabilities of the prune step
-# # This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
-# ratio_prune = function(curr_tree,new_tree){
-#   prune_ratio = get_w(new_tree)/(get_nterminal(curr_tree)-1)
-#   return(prune_ratio)
-# }
-#
-#
+# This functions calculates the number of terminal nodes
+get_nterminal = function(tree){
+
+  indeces = which(tree$tree_matrix[,'terminal'] == '1') # determine which indices have a terminal node label
+  b = as.numeric(length(indeces)) # take the length of these indices, to determine the number of terminal nodes/leaves
+  return(b)
+}
+
+# This function calculates the number of parents with two terminal nodes/ second generation internal nodes as formulated in bartMachine
+get_w = function(tree){
+  indeces = which(tree$tree_matrix[,'terminal'] == '1') #determine which indices have a terminal node label
+  # determine the parent for each terminal node and sum the number of duplicated parents
+  w = as.numeric(sum(duplicated(tree$tree_matrix[indeces,'parent'])))
+  return(w)
+}
+
+
+
+# The ratio grow function calculates ratio of transition probabilities of the grow step
+# This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
+ratio_grow = function(curr_tree,new_tree){
+  grow_ratio = get_nterminal(curr_tree)/(get_w(new_tree)+1)
+  return(grow_ratio)
+}
+
+# The ratio prune function calculates ratio of transition probabilities of the prune step
+# This function is in accordance with the soft BART paper, input: current tree, proposed/new tree
+ratio_prune = function(curr_tree,new_tree){
+  prune_ratio = get_w(new_tree)/(get_nterminal(curr_tree)-1)
+  return(prune_ratio)
+}
+
+

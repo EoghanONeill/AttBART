@@ -73,7 +73,7 @@ resample <- function(x, ...) x[sample.int(length(x), size = 1), ...]
 sample.vec <- function(x, ...) x[sample(length(x), ...)]
 
 update_s <- function(var_count, p, alpha_s) {
-  s_ <- rdirichlet(1, alpha_s / p + var_count)
+  s_ <- rdirichlet(1, (alpha_s / p ) + var_count)
   return(s_)
 }
 
@@ -295,7 +295,7 @@ get_unnorm_att_1tree_no_w <- function(curr_tree, X, tau = 1, feature_weighting, 
       # colmeanmat <- fmean(X, X_node_indices)
       # mean_matrix <- colmeanmat[as.character(X_node_indices),]
 
-      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+      X_diff_sq <- (fmean(X, X_node_indices, TRA = "-") %r*% s )^2
 
       # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
       X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
@@ -469,7 +469,7 @@ get_unnorm_att_all_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num
       # colmeanmat <- fmean(X, X_node_indices)
       # mean_matrix <- colmeanmat[as.character(X_node_indices),]
 
-      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+      X_diff_sq <- (fmean(X, X_node_indices, TRA = "-") %r*% s )^2
 
       # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
       X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
@@ -639,7 +639,7 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
       # colmeanmat <- fmean(X, X_node_indices)
       # mean_matrix <- colmeanmat[as.character(X_node_indices),]
 
-      X_diff_sq <- fmean(X, X_node_indices, TRA = "-")^2
+      X_diff_sq <- (fmean(X, X_node_indices, TRA = "-") %r*% s )^2
 
       # X_diff_sq <- ( ((X - mean_matrix) %r*% s )   ^2)
       X_L2_sq <- rowSums(X_diff_sq)#/ length(splitvars)^2
@@ -861,6 +861,49 @@ get_MH_probability <- function(X, curr_tree, new_tree,
   return(min(1, r))
 }
 
+
+
+# This function returns the Metropolis-Hastings acceptance probability in line
+# with Kapelner, A., and Bleich, J. (2013). "bartMachine: Machine learning with
+# Bayesian additive regression trees."
+get_MH_probability2 <- function(X, curr_tree, new_tree,
+                               att_weights_current, att_weights_new,
+                               curr_partial_resid_rescaled,
+                               new_partial_resid_rescaled,
+                               type, trans_prob,
+                               alpha, beta,
+                               mu_mu, sigma2_mu, sigma2,
+                               node_min_size) {
+  # Number of terminal nodes in current tree
+  # b_j <- sum(curr_tree$tree_matrix[, "terminal"])
+
+  # Get the tree type probabilities
+  # if(nrow(curr_tree$tree_matrix) == 1 ){
+  #   prob_grow <-  1 #trans_prob[1]
+  #   prob_prune <- trans_prob[2]
+  # }else{
+  #   prob_grow <- trans_prob[1]
+  #   prob_prune <- trans_prob[2]
+  # }
+
+  prob_grow <- trans_prob[1]
+  prob_prune <- trans_prob[2]
+  l_new <- get_logL(new_tree, new_partial_resid_rescaled, att_weights_new, mu_mu, sigma2_mu, sigma2)
+  l_old <- get_logL(curr_tree, curr_partial_resid_rescaled, att_weights_current, mu_mu, sigma2_mu, sigma2)
+
+  if(type == 'grow'){
+    a = exp(l_new - l_old)*ratio_grow(new_tree, curr_tree) * prob_prune / prob_grow
+  } else if(type == 'prune'){
+    a = exp(l_new - l_old)*ratio_prune(new_tree, curr_tree) * prob_grow / prob_prune
+  } else{
+    a = exp(l_new - l_old)
+  }
+
+
+  # r <- exp(l_new - l_old) * transition_ratio * tree_ratio
+  return(min(1, a))
+}
+
 get_logL <- function(tree, residuals, att_weights, mu_mu, sigma2_mu, sigma2) {
   terminal_nodes <- which(tree$tree_matrix[, "terminal"] == 1)
   # logL <- 0
@@ -1043,3 +1086,75 @@ update_sigma2 <- function(S, n, nu, lambda) {
   sigma2 <- 1 / rgamma(1, shape = (n + nu) / 2, rate = (S + nu * lambda) / 2)
   return(sigma2)
 }
+
+
+
+
+update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
+
+  # create inputs for likelihood
+
+  log_s <- log(s)
+  mean_log_s <- mean(log_s)
+  p <- length(s)
+  # alpha_scale   # denoted by lambda_a in JRSSB paper
+
+  rho_grid <- (1:999)/1000
+
+  alpha_grid <- alpha_scale * rho_grid / (1 - rho_grid )
+
+  logliks <- alpha_grid * mean_log_s +
+    lgamma(alpha_grid) -
+    p*lgamma(alpha_grid/p) +
+    dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
+
+  max_ll <- max(logliks)
+  logsumexps <- max_ll + log(sum(exp( logliks  -  max_ll )))
+
+
+
+  logliks <- exp(logliks - logsumexps)
+
+  rho_ind <- sample.int(999,size = 1, prob = logliks)
+
+
+  return(alpha_grid[rho_ind])
+}
+
+
+update_sigmu <- function(trees, curr_sigmu2) {
+
+  # num_trees <- length(trees)
+  mu_vec <- c()
+  for(m in 1:length(trees)){
+
+    mu_vec <- c(mu_vec,
+                trees[[m]]$tree_matrix[, 'mu'])
+
+  }
+
+  mu_vec <- na.omit(mu_vec)
+
+  # note Linero and Yang's sigma_mu corresponds to
+  # num_trees times sigma_mu as defined in this package
+  curr_s_mu <- sqrt(curr_sigmu2)
+
+  prop_s_mu_minus2 <- rgamma(n = 1,
+                             shape = length(mu_vec)/2,
+                             rate = sum(mu_vec^2)/2)
+
+  prop_s_mu <- sqrt(1/prop_s_mu_minus2)
+
+  acceptprob <- (dcauchy(prop_s_mu, 0, 0.25/sqrt(num_trees))/dcauchy(curr_s_mu, 0, 0.25/sqrt(num_trees)))*
+    (prop_s_mu/curr_s_mu)^3
+
+  if(runif(1) < acceptprob){
+    new_s_mu <- prop_s_mu
+  }else{
+    new_s_mu <- curr_s_mu
+  }
+
+  return(new_s_mu^2)
+}
+
+

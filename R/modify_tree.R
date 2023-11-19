@@ -136,6 +136,7 @@ grow_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
       n_bad_trees <- n_bad_trees + 1
       # If we reached the maximum of searches, stop searching for a good tree and return the current tree
       if(n_bad_trees >= max_bad_trees){
+        curr_tree$var <- 0
         return(curr_tree)
       }
     } else {
@@ -377,6 +378,11 @@ change_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
       bad_trees <- FALSE
     }
   }
+
+  # # this if statement is probably unnecessary, unless "next" occurs in last while looop iteration
+  # if(bad_trees == TRUE){
+  #   curr_tree$var <- c(0, 0)
+  # }
 
   return(new_tree)
 }
