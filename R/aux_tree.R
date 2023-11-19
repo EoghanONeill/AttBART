@@ -225,7 +225,8 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
 
 get_unnorm_att_1tree_no_w <- function(curr_tree, X, tau = 1, feature_weighting, sq_num_features,
                                splitprob_as_weights,
-                               s) {
+                               s,
+                               test_binary = TRUE) {
   # To calculate attention weights:
   #  1. For each tree, find the leaf for each training observation x_i
   #  2. For each tree, obtain leaf covariate means A_j(x_i) (vectors)
@@ -249,6 +250,11 @@ get_unnorm_att_1tree_no_w <- function(curr_tree, X, tau = 1, feature_weighting, 
   #   # Find the current terminal nodes (leaves)
   #   curr_tree <- trees[[j]]
 
+  if(test_binary){
+    curr_tree <- fill_tree_details(curr_tree, X)
+  }else{
+    # curr_tree <- trees[[j]]
+  }
 
     if(!splitprob_as_weights){
       # Feature weighting
@@ -399,7 +405,8 @@ get_unnorm_att_1tree_no_w <- function(curr_tree, X, tau = 1, feature_weighting, 
 
 get_unnorm_att_all_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_features,
                                splitprob_as_weights,
-                               s) {
+                               s,
+                               test_binary = TRUE) {
   # To calculate attention weights:
   #  1. For each tree, find the leaf for each training observation x_i
   #  2. For each tree, obtain leaf covariate means A_j(x_i) (vectors)
@@ -421,8 +428,11 @@ get_unnorm_att_all_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num
 
 
     # Find the current terminal nodes (leaves)
-    curr_tree <- trees[[j]]
-
+    if(test_binary){
+      curr_tree <- fill_tree_details(trees[[j]], X)
+    }else{
+      curr_tree <- trees[[j]]
+    }
 
     if(!splitprob_as_weights){
       # Feature weighting
@@ -569,7 +579,8 @@ get_unnorm_att_all_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num
 
 get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_features,
                                splitprob_as_weights,
-                               s) {
+                               s,
+                               test_binary = TRUE) {
   # To calculate attention weights:
   #  1. For each tree, find the leaf for each training observation x_i
   #  2. For each tree, obtain leaf covariate means A_j(x_i) (vectors)
@@ -591,8 +602,11 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
 
 
     # Find the current terminal nodes (leaves)
-    curr_tree <- trees[[j]]
-
+    if(test_binary){
+      curr_tree <- fill_tree_details(trees[[j]], X)
+    }else{
+      curr_tree <- trees[[j]]
+    }
 
     if(!splitprob_as_weights){
       # Feature weighting
@@ -1122,9 +1136,9 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
 }
 
 
-update_sigmu <- function(trees, curr_sigmu2) {
+update_sigma_mu <- function(trees, curr_sigmu2) {
 
-  # num_trees <- length(trees)
+  num_trees <- length(trees)
   mu_vec <- c()
   for(m in 1:length(trees)){
 

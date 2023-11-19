@@ -455,7 +455,7 @@ attBart_no_w <- function(Xtrain,
 
 
     if(sigma_mu_prior){
-      sigma2_mu <-  update_sigmu(curr_trees, sigma2_mu)
+      sigma2_mu <-  update_sigma_mu(curr_trees, sigma2_mu)
     }
 
     # If at the right place, store everything
