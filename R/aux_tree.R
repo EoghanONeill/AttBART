@@ -152,7 +152,8 @@ get_prediction_no_w <- function(tree, X) {
 get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature_weighting, const_tree_weights,
                                      sq_num_features,
                                      splitprob_as_weights,
-                                     s) {
+                                     s,
+                                     test_binary = TRUE) {
 
   # Stop nesting problems in case of multiple trees
   if(is.null(names(trees)) & (length(trees) == 1)) trees = trees[[1]]
@@ -161,7 +162,7 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
     att_weights <- matrix(1/length(trees), nrow = nrow(X), ncol = length(trees))
   }else{
     att_weights <- get_attention_no_w(trees, X, tau, feature_weighting, sq_num_features, splitprob_as_weights,
-                                      s)
+                                      s, test_binary)
   }
 
   # Normally trees will be a list of lists but just in case
@@ -1113,14 +1114,15 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
   p <- length(s)
   # alpha_scale   # denoted by lambda_a in JRSSB paper
 
-  rho_grid <- (1:999)/1000
+  rho_grid <- (1:1000)/1001
 
   alpha_grid <- alpha_scale * rho_grid / (1 - rho_grid )
 
   logliks <- alpha_grid * mean_log_s +
     lgamma(alpha_grid) -
     p*lgamma(alpha_grid/p) +
-    dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
+    (alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid)
+    # dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
 
   max_ll <- max(logliks)
   logsumexps <- max_ll + log(sum(exp( logliks  -  max_ll )))
@@ -1129,7 +1131,7 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
 
   logliks <- exp(logliks - logsumexps)
 
-  rho_ind <- sample.int(999,size = 1, prob = logliks)
+  rho_ind <- sample.int(1000,size = 1, prob = logliks)
 
 
   return(alpha_grid[rho_ind])

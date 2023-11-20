@@ -38,7 +38,8 @@ attBart_no_w <- function(Xtrain,
                          splitprob_as_weights = FALSE,
                          tau = 1,
                          alpha_prior = FALSE,
-                         sigma_mu_prior = FALSE) { # Simple feature weighting
+                         sigma_mu_prior = FALSE,
+                         update_tau = FALSE) { # Simple feature weighting
   if (!is.na(seed)) set.seed(seed)
 
 
@@ -100,6 +101,10 @@ attBart_no_w <- function(Xtrain,
   alpha_s <- 1 # p
 
   alpha_scale <- p
+
+
+
+  tau_rate <- 10
 
   if (is.na(sigest)) {
     if (p < n) {
@@ -166,7 +171,7 @@ attBart_no_w <- function(Xtrain,
 
   }else{
     att_weights_current_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
-                                              splitprob_as_weights, s)
+                                              splitprob_as_weights, s, FALSE)
     att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
     att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
 
@@ -196,7 +201,7 @@ attBart_no_w <- function(Xtrain,
 
   y_hat_unnorm <- rowSums(treepredmat*att_weights_current_unnorm)
 
-  # MCMC iterations loop
+  ######### MCMC iterations loop ##########
   for (i in 1:n_iter) {
     utils::setTxtProgressBar(pb, i)
 
@@ -322,7 +327,7 @@ attBart_no_w <- function(Xtrain,
         att_weights_new_unnorm <- att_weights_current_unnorm
 
         att_weights_new_unnorm[,j] <- get_unnorm_att_1tree_no_w(new_trees[[j]], X_scaled, tau, feature_weighting, sq_num_features,
-                                                              splitprob_as_weights, s)
+                                                              splitprob_as_weights, s, FALSE)
         att_weights_new_denoms <- att_weights_current_denoms - att_weights_current_unnorm[,j] + att_weights_new_unnorm[,j]
         att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
 
@@ -457,6 +462,43 @@ attBart_no_w <- function(Xtrain,
     if(sigma_mu_prior){
       sigma2_mu <-  update_sigma_mu(curr_trees, sigma2_mu)
     }
+
+
+
+    if(! const_tree_weights  & update_tau){
+      prop_tau <- tau*(5^(runif(n = 1,min = -1,max = 1)))
+
+      att_weights_new_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                                            splitprob_as_weights, s, FALSE)
+      att_weights_new_denoms <- rowSums(att_weights_new_unnorm)
+      att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
+
+      y_hat_new <- rep(0, m)
+      for (j in 1:m) {
+        # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
+        y_hat_new <- y_hat_new + treepredmat[,j] * att_weights_new[, j]
+      }
+      sum_of_squares_new <- sum((y_scale - y_hat)^2)
+
+
+      l_new <-   - sum_of_squares_new/(2*sigma2)  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
+      l_old <-   - sum_of_squares/(2*sigma2)  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
+
+      if(runif(1) < exp(l_new - l_old)){
+
+        tau <- prop_tau
+
+        att_weights_current_unnorm <- att_weights_new_unnorm
+        att_weights_current_denoms <- att_weights_new_denoms
+        att_weights_current <- att_weights_new
+
+        y_hat <- y_hat_new
+
+      }
+
+    }
+
+
 
     # If at the right place, store everything
     if ((i > n_burn) & ((i - n_burn) %% n_thin) == 0) {
