@@ -1,3 +1,22 @@
+
+
+
+
+make_01_norm <- function(x) {
+  a <- min(x)
+  b <- max(x)
+  return(function(y0) (y0 - a) / (b - a))
+}
+
+make_normalized <- function(x) {
+  a <- mean(x)
+  b <- sd(x)
+  if(b == 0 | is.na(b)){
+    b <- 1
+  }
+  return(function(y0) (y0 - a) / (b))
+}
+
 #' @import Rcpp
 #' @import progress
 #' @import collapse
@@ -39,9 +58,14 @@ attBart_no_w <- function(Xtrain,
                          tau = 1,
                          alpha_prior = FALSE,
                          sigma_mu_prior = FALSE,
-                         update_tau = FALSE) { # Simple feature weighting
+                         update_tau = FALSE,
+                         covariate_scaling = "normalize") { # Simple feature weighting
+
   if (!is.na(seed)) set.seed(seed)
 
+  if(!(covariate_scaling %in% c("none", "ECDF", "normalize"))){
+    stop("covariate_scaling must be none, ECDF, or normalize")
+  }
 
   if(sparse == FALSE){
     splitprob_as_weights <- FALSE
@@ -52,10 +76,29 @@ attBart_no_w <- function(Xtrain,
 
   }
 
-  # Transform y and X
-  X_scaled <- scale(Xtrain)
-  X_center <- attr(X_scaled, "scaled:center")
-  X_scale <- attr(X_scaled, "scaled:scale")
+  # # Transform y and X
+  # X_scaled <- scale(Xtrain)
+  # X_center <- attr(X_scaled, "scaled:center")
+  # X_scale <- attr(X_scaled, "scaled:scale")
+
+  X_scaled <- matrix(NA,
+                     nrow = nrow(Xtrain),
+                     ncol = ncol(Xtrain))
+
+  scale_x_funcs   <- list()
+  for(i in 1:ncol(Xtrain)) {
+
+    if(covariate_scaling == "none") scale_x_funcs[[i]] <- identity
+    if(covariate_scaling == "ECDF") scale_x_funcs[[i]] <- ecdf(Xtrain[,i])
+    if(covariate_scaling == "normalize") scale_x_funcs[[i]] <- make_normalized(Xtrain[,i])
+
+    if(length(unique(Xtrain[,i])) == 1) scale_x_funcs[[i]] <- identity
+    if(length(unique(Xtrain[,i])) == 2) scale_x_funcs[[i]] <- make_01_norm(Xtrain[,i])
+  }
+  for(i in 1:ncol(Xtrain)) {
+    X_scaled[,i] <- scale_x_funcs[[i]](Xtrain[,i])
+  }
+
 
 
   y_sd <- sd(ytrain)
@@ -384,17 +427,28 @@ attBart_no_w <- function(Xtrain,
       # (c) Obtain the Metropolis-Hastings probability
       curr_tree <- curr_trees[[j]]
       new_tree <- new_trees[[j]]
-      alpha_MH <- get_MH_probability(
-        X = X_scaled, curr_tree, new_tree,
-        att_weights_current[, j], att_weights_new[, j],
-        curr_partial_resid_rescaled, new_partial_resid_rescaled,
-        type, trans_prob,
-        alpha, beta,
-        mu_mu, sigma2_mu, sigma2,
-        node_min_size
-      )
+
+      if((nrow(new_tree$tree_matrix) == nrow(curr_tree$tree_matrix) ) & (type != "change" )){
+        alpha_MH <- 0
+        # print("no good trees")
+      }else{
+        alpha_MH <- get_MH_probability(
+          X = X_scaled, curr_tree, new_tree,
+          att_weights_current[, j], att_weights_new[, j],
+          curr_partial_resid_rescaled, new_partial_resid_rescaled,
+          type, trans_prob,
+          alpha, beta,
+          mu_mu, sigma2_mu, sigma2,
+          node_min_size
+        )
+        # print("calculated MH probability")
+        # print("new_tree = ")
+        # print(new_tree)
+      }
 
 
+      # print("alpha_MH = ")
+      # print(alpha_MH)
       # y_hat_unnorm <- y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j]
 
 
@@ -438,7 +492,7 @@ attBart_no_w <- function(Xtrain,
     } # End loop through trees
 
     # 3. Update/Sample sigma2 ---------------------------------------------------
-    # y_hat <- rep(0, m)
+    # y_hat <- rep(0, n)
     # for (j in 1:m) {
     #   # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
     #   y_hat <- y_hat + treepredmat[,j] * att_weights_current[, j]
@@ -465,15 +519,15 @@ attBart_no_w <- function(Xtrain,
 
 
 
-    if(! const_tree_weights  & update_tau){
-      prop_tau <- tau*(5^(runif(n = 1,min = -1,max = 1)))
+    if( (! const_tree_weights)  & update_tau){
+      prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.1)
 
-      att_weights_new_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+      att_weights_new_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, prop_tau, feature_weighting, sq_num_features,
                                                             splitprob_as_weights, s, FALSE)
       att_weights_new_denoms <- rowSums(att_weights_new_unnorm)
       att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
 
-      y_hat_new <- rep(0, m)
+      y_hat_new <- rep(0, n)
       for (j in 1:m) {
         # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
         y_hat_new <- y_hat_new + treepredmat[,j] * att_weights_new[, j]
@@ -482,9 +536,12 @@ attBart_no_w <- function(Xtrain,
 
 
       l_new <-   - sum_of_squares_new/(2*sigma2)  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
-      l_old <-   - sum_of_squares/(2*sigma2)  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
+      l_old <-   -  sum_of_squares/(2*sigma2)  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
 
       if(runif(1) < exp(l_new - l_old)){
+
+        # print("tau accepted")
+        # print(prop_tau)
 
         tau <- prop_tau
 
@@ -522,8 +579,8 @@ attBart_no_w <- function(Xtrain,
     y_hat =  (y_hat_store+(y_max + y_min)/2)*y_sd + y_mean,
     var_count_store = var_count_store,
     s = s_prob_store,
-    center = X_center,
-    scale = X_scale,
+    # center = X_center,
+    # scale = X_scale,
     scaledtrainingdata = X_scaled,
     MH_prob = alpha_MH_store,
     att_weights = att_weights_store,
@@ -541,6 +598,7 @@ attBart_no_w <- function(Xtrain,
     y_min = y_min,
     const_tree_weights = const_tree_weights,
     sq_num_features = sq_num_features,
-    splitprob_as_weights = splitprob_as_weights
+    splitprob_as_weights = splitprob_as_weights,
+    scale_x_funcs = scale_x_funcs
   ))
 }

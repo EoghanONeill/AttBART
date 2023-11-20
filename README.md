@@ -47,7 +47,7 @@ y.test = data_test$y
 x.test = data_test$x
 
 
-fit.attbart <- attBart_no_w(x,y, feature_weighting = TRUE)
+fit.attbart <- attBart_no_w(x,y, feature_weighting = TRUE, sparse = TRUE)
 
 y.test.hat_abart <- predict_attbart_test(fit.attbart, x.test, type = "mean")
 

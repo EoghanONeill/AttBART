@@ -24,9 +24,11 @@ predict_attbart = function(object, newdata,
   # newdata <- newdata * object$scale + object$center
 
   # newdata <- (newdata -  object$center)/ object$scale
-  newdata2 <- scale(newdata, center = object$center, scale = object$scale)
+  # newdata2 <- scale(newdata, center = object$center, scale = object$scale)
 
-
+  for(i in 1:ncol(newdata)) {
+    newdata2[,i] <- object$scale_x_funcs[[i]](newdata[,i])
+  }
   # print("nrow(newdata2)= ")
   # print(nrow(newdata2))
   #
@@ -63,7 +65,7 @@ predict_attbart_test = function(object, newdata,
                                 weighttrees = TRUE) {
 
 
-  xtrain <- object$scaledtrainingdata
+  # xtrain <- object$scaledtrainingdata
 
   # Create holder for predicted values
   n_newX = dim(newdata)[1]
@@ -86,7 +88,12 @@ predict_attbart_test = function(object, newdata,
 
   # newdata <- newdata * object$scale + object$center
 
-  newdata2 <- scale(newdata, center = object$center, scale = object$scale)
+  # newdata2 <- scale(newdata, center = object$center, scale = object$scale)
+
+
+  for(i in 1:ncol(newdata)) {
+    newdata2[,i] <- object$scale_x_funcs[[i]](newdata[,i])
+  }
 
   # newdata <- (newdata -  object$center)/ object$scale
 

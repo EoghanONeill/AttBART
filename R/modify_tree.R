@@ -32,7 +32,7 @@ create_stumps <- function(m,
   # Create holder for trees
   all_trees <- vector("list", length = m)
   # Initialisation of mu for the tree stumps
-  mu_stump <- mean(y) / m
+  mu_stump <- mean(y) #/ m
   # Loop through trees
   for (j in 1:m) {
     # Set up each tree to have two elements in the list as described above
@@ -108,6 +108,16 @@ grow_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
   while(bad_tree){
     # Choose which node to split, set prob to zero for any nodes that are too small
 
+    # Set up holder for new tree
+    new_tree <- curr_tree
+
+    # Add two extra rows to the tree in question
+    new_tree$tree_matrix <- rbind(
+      new_tree$tree_matrix,
+      c(1, NA, NA, NA, NA, NA, NA, NA), # Make sure they're both terminal
+      c(1, NA, NA, NA, NA, NA, NA, NA)
+    )
+
     # node_to_split <- sample.vec(terminal_nodes, 1,
     #                             prob = as.integer(terminal_node_size >= 2 * node_min_size))
     if(length(terminal_nodes)==1){
@@ -127,62 +137,99 @@ grow_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
     #   split_variable
     # ]), na.last = TRUE)
 
-    available_values <- collapse::funique(X[curr_tree$node_indices == node_to_split,split_variable], TRUE)
+    available_values <- collapse::funique(X[curr_tree$node_indices == node_to_split, split_variable], TRUE)
 
-    # If the number of unique values in the chosen node of the chosen covariate is less then 2 * node_min_size,
-    # then this is a bad tree choice!
-    n_values <- length(available_values)
-    if(n_values < 2 * node_min_size){
-      n_bad_trees <- n_bad_trees + 1
-      # If we reached the maximum of searches, stop searching for a good tree and return the current tree
-      if(n_bad_trees >= max_bad_trees){
-        curr_tree$var <- 0
-        return(curr_tree)
-      }
+    # # If the number of unique values in the chosen node of the chosen covariate is less then 2 * node_min_size,
+    # # then this is a bad tree choice!
+    # n_values <- length(available_values)
+    # if(n_values < 2 * node_min_size){
+    #   n_bad_trees <- n_bad_trees + 1
+    #   # If we reached the maximum of searches, stop searching for a good tree and return the current tree
+    #   if(n_bad_trees >= max_bad_trees){
+    #     curr_tree$var <- 0
+    #     return(curr_tree)
+    #   }
+    # } else {
+    #   bad_tree <- FALSE
+    # }
+
+    # can reduce the number of splits considered more by using
+    # fnobs and checking if number above or below some available value is beyond the minimum node size
+
+    if(length(available_values) == 1){
+      new_split_value = available_values[1]
+    } else if (length(available_values) == 2){
+      new_split_value = available_values[2]
+    }  else {
+      # split_value = sample(available_values[-c(1,length(available_values))], 1)
+      # split_value = resample(available_values[-c(1,length(available_values))])
+      new_split_value = sample(available_values[-c(1)],1)
+      # split_value = resample(available_values[-c(1,length(available_values))])
+      # split_value = runif(1,available_values[2],available_values[length(available_values)])
+
+    }
+
+
+  # }
+
+    # # Set up holder for new tree
+    # new_tree <- curr_tree
+    #
+    # # Add two extra rows to the tree in question
+    # new_tree$tree_matrix <- rbind(
+    #   new_tree$tree_matrix,
+    #   c(1, NA, NA, NA, NA, NA, NA, NA), # Make sure they're both terminal
+    #   c(1, NA, NA, NA, NA, NA, NA, NA)
+    # )
+
+    # # Choose a split value such that there is enough observations to the left and right child
+    # if (node_min_size == 0) {
+    #   new_split_value <- resample(available_values)
+    # } else if (node_min_size == 1) {
+    #   new_split_value <- resample(available_values[-1])
+    # } else {
+    #   new_split_value <- resample(available_values[-c(1:node_min_size, (n_values - node_min_size + 2):n_values)])
+    # }
+
+    size_new_tree <- nrow(new_tree$tree_matrix)
+    curr_parent <- new_tree$tree_matrix[node_to_split, "parent"] # Make sure to keep the current parent in there. Will be NA if at the root node
+    new_tree$tree_matrix[node_to_split, 1:7] <- c(
+      0, # No longer terminal
+      size_new_tree - 1, # child_left is penultimate row
+      size_new_tree, # child_right is last row
+      curr_parent,
+      split_variable,
+      new_split_value,
+      NA
+    )
+
+    #  Fill in the parents of these two nodes
+    # new_tree$tree_matrix[size_new_tree,'parent'] = node_to_split
+    new_tree$tree_matrix[c(size_new_tree - 1, size_new_tree), "parent"] <- node_to_split
+
+    # Now call the fill function on this tree
+    new_tree <- fill_tree_details(new_tree, X)
+
+    # Store the covariate name to use it to update the Dirichlet prior of Linero (2016).
+    new_tree$var <- split_variable
+
+    # Check for bad tree
+    if(any(as.numeric(new_tree$tree_matrix[,'node_size']) <= node_min_size)) {
+
+      # print(" bad tree = ")
+      # print(new_tree$tree_matrix)
+      n_bad_trees = n_bad_trees + 1
     } else {
-      bad_tree <- FALSE
+      bad_tree = FALSE
+    }
+
+    if(n_bad_trees >= max_bad_trees) {
+      # print(" reached max_bad_trees = ")
+
+      curr_tree$var = 0
+      return(curr_tree)
     }
   }
-
-  # Set up holder for new tree
-  new_tree <- curr_tree
-
-  # Add two extra rows to the tree in question
-  new_tree$tree_matrix <- rbind(
-    new_tree$tree_matrix,
-    c(1, NA, NA, NA, NA, NA, NA, NA), # Make sure they're both terminal
-    c(1, NA, NA, NA, NA, NA, NA, NA)
-  )
-
-  # Choose a split value such that there is enough observations to the left and right child
-  if (node_min_size == 0) {
-    new_split_value <- resample(available_values)
-  } else if (node_min_size == 1) {
-    new_split_value <- resample(available_values[-1])
-  } else {
-    new_split_value <- resample(available_values[-c(1:node_min_size, (n_values - node_min_size + 2):n_values)])
-  }
-
-  size_new_tree <- nrow(new_tree$tree_matrix)
-  curr_parent <- new_tree$tree_matrix[node_to_split, "parent"] # Make sure to keep the current parent in there. Will be NA if at the root node
-  new_tree$tree_matrix[node_to_split, 1:7] <- c(
-    0, # No longer terminal
-    size_new_tree - 1, # child_left is penultimate row
-    size_new_tree, # child_right is last row
-    curr_parent,
-    split_variable,
-    new_split_value,
-    NA
-  )
-
-  #  Fill in the parents of these two nodes
-  new_tree$tree_matrix[c(size_new_tree - 1, size_new_tree), "parent"] <- node_to_split
-
-  # Now call the fill function on this tree
-  new_tree <- fill_tree_details(new_tree, X)
-
-  # Store the covariate name to use it to update the Dirichlet prior of Linero (2016).
-  new_tree$var <- split_variable
 
   return(new_tree)
 }
@@ -326,26 +373,40 @@ change_tree <- function(y, X, curr_tree, node_min_size, s, max_bad_trees) {
 
     n_values <- length(available_values)
 
-    # If there are not enough available values to at least assign node_min_size amount of observations to the left
-    #   and right, then it is already a bad tree
-    if (n_values < 2 * node_min_size) {
-      count_bad_trees <- count_bad_trees + 1
-      if (count_bad_trees >= max_bad_trees) {
-        curr_tree$var <- c(0, 0)
-        return(curr_tree)
-      }
-      # If this a bad tree, skip the rest of this while iteration
-      next
+    # # If there are not enough available values to at least assign node_min_size amount of observations to the left
+    # #   and right, then it is already a bad tree
+    # if (n_values < 2 * node_min_size) {
+    #   count_bad_trees <- count_bad_trees + 1
+    #   if (count_bad_trees >= max_bad_trees) {
+    #     curr_tree$var <- c(0, 0)
+    #     return(curr_tree)
+    #   }
+    #   # If this a bad tree, skip the rest of this while iteration
+    #   next
+    # } else {
+    #   # Prevent a bad tree to remove the first and (last-1) node_min_size values
+    #   if (node_min_size == 0) {
+    #     new_split_value <- resample(available_values)
+    #   } else if (node_min_size == 1) {
+    #     new_split_value <- resample(available_values[-1])
+    #   } else {
+    #     # Does not work if node_min_size is 0 or 1, hence the ifs
+    #     new_split_value <- resample(available_values[-c(1:node_min_size, (n_values - node_min_size + 2):n_values)])
+    #   }
+    # }
+
+    if (length(available_values) == 1){
+      new_split_value = available_values[1]
+      new_tree$var = c(var_changed_node, new_split_variable)
+    } else if (length(available_values) == 2){
+      new_split_value = available_values[2]
+      new_tree$var = c(var_changed_node, new_split_variable)
     } else {
-      # Prevent a bad tree to remove the first and (last-1) node_min_size values
-      if (node_min_size == 0) {
-        new_split_value <- resample(available_values)
-      } else if (node_min_size == 1) {
-        new_split_value <- resample(available_values[-1])
-      } else {
-        # Does not work if node_min_size is 0 or 1, hence the ifs
-        new_split_value <- resample(available_values[-c(1:node_min_size, (n_values - node_min_size + 2):n_values)])
-      }
+      # new_split_value = resample(available_values[-c(1,length(available_values))], 1)
+      # new_split_value = sample(available_values[-c(1,length(available_values))])
+      new_split_value = sample(available_values[-c(1)],1)
+      # new_split_value = runif(1,available_values[2],available_values[length(available_values)])
+
     }
 
     # Update the tree details

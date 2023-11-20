@@ -805,6 +805,7 @@ get_pruned_node <- function(curr_tree, pruned_tree) {
 # This function returns the Metropolis-Hastings acceptance probability in line
 # with Kapelner, A., and Bleich, J. (2013). "bartMachine: Machine learning with
 # Bayesian additive regression trees."
+
 get_MH_probability <- function(X, curr_tree, new_tree,
                                att_weights_current, att_weights_new,
                                curr_partial_resid_rescaled,
@@ -828,6 +829,8 @@ get_MH_probability <- function(X, curr_tree, new_tree,
   prob_grow <- trans_prob[1]
   prob_prune <- trans_prob[2]
 
+  # print("type = ")
+  # print(type)
   # Type is either "grow", "prune" or "change"
   if (type == "grow") {
     # The chosen node that it used to grow is the parent of the newly added last two rows in the NEW tree
@@ -840,12 +843,36 @@ get_MH_probability <- function(X, curr_tree, new_tree,
     # p_j <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
     # n_j <- n_unique[covariate_to_split] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
     w_2_star <- length(get_gen2(new_tree)) # Number of second generation nodes in the NEW tree
+
+    # print("node_to_split = ")
+    # print(node_to_split)
+    #
+    # print("curr_tree = ")
+    # print(curr_tree)
+    #
+    # print("new_tree = ")
+    # print(new_tree)
+
     depth_jl <- get_depth(curr_tree, node_to_split) # The depth of the chosen node to split on (in either the current or new tree)
 
     # tree_ratio <- alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 / (((1 + depth_jl)^beta - alpha) * p_j * n_j)
     # transition_ratio <- prob_prune / prob_grow * b_j * p_j * n_j / w_2_star
+    # print("depth_jl = ")
+    # print(depth_jl)
+    #
+    # print("alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 = ")
+    # print(alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
+    #
+    # print("((1 + depth_jl)^beta - alpha)  = ")
+    # print(((1 + depth_jl)^beta - alpha) )
+    #
+    # print("alpha = ")
+    # print(alpha)
+    #
+    # print("beta = ")
+    # print(beta)
 
-    tree_ratio <- alpha * (1 - alpha / ((2 + depth_jl)^beta))^2 / (((1 + depth_jl)^beta - alpha) )
+    tree_ratio <- alpha * (1 - (alpha / ((2 + depth_jl)^beta)) )^2 / (((1 + depth_jl)^beta - alpha) )
     transition_ratio <- prob_prune / prob_grow * b_j  / w_2_star # maybe this should be (w_2_star + 1) ?
   } else if (type == "prune") {
     # Finding the node used to prune is a bit more difficult then finding the node to split on
@@ -858,6 +885,13 @@ get_MH_probability <- function(X, curr_tree, new_tree,
     # p_j_star <- sum(n_unique >= 2 * node_min_size) # Number of available covariates to split on
     # n_j_star <- n_unique[pruned_covariate] - (node_min_size > 0) * (2 * node_min_size - 1) # Number of available values to split on given the chosen covariate, adjusted to the minimum leaf size
     w_2 <- length(get_gen2(curr_tree)) # Number of second generation nodes in the CURRENT tree
+
+    # print("pruned_node = ")
+    # print(pruned_node)
+    #
+    # print("new_tree = ")
+    # print(new_tree)
+
     depth_jl <- get_depth(new_tree, pruned_node) # The depth of the chosen node to split on (in either the current or new tree)
 
     # tree_ratio <- ((1 + depth_jl)^beta - alpha) * p_j_star * n_j_star / (alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
@@ -873,6 +907,19 @@ get_MH_probability <- function(X, curr_tree, new_tree,
   l_new <- get_logL(new_tree, new_partial_resid_rescaled, att_weights_new, mu_mu, sigma2_mu, sigma2)
   l_old <- get_logL(curr_tree, curr_partial_resid_rescaled, att_weights_current, mu_mu, sigma2_mu, sigma2)
   r <- exp(l_new - l_old) * transition_ratio * tree_ratio
+
+  # print("l_new = ")
+  # print(l_new)
+  #
+  # print("l_old = ")
+  # print(l_old)
+  #
+  # print("transition_ratio = ")
+  # print(transition_ratio)
+  #
+  # print("tree_ratio = ")
+  # print(tree_ratio)
+
   return(min(1, r))
 }
 
@@ -1130,6 +1177,34 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
 
 
   logliks <- exp(logliks - logsumexps)
+
+  if(any(is.na(logliks))){
+    print("logliks = ")
+    print(logliks)
+
+    print("logsumexps = ")
+    print(logsumexps)
+
+    print("mean_log_s = ")
+    print(mean_log_s)
+
+    print("lgamma(alpha_grid) = ")
+    print(lgamma(alpha_grid))
+
+    print("p*lgamma(alpha_grid/p) = ")
+    print(p*lgamma(alpha_grid/p))
+
+    print("(alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid) = ")
+    print((alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid))
+
+    print("max_ll = ")
+    print(max_ll)
+
+    print("s = ")
+    print(s)
+
+
+  }
 
   rho_ind <- sample.int(1000,size = 1, prob = logliks)
 
