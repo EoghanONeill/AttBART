@@ -522,19 +522,20 @@ attBart_no_w <- function(Xtrain,
 
 
     if( (! const_tree_weights)  & update_tau){
-      prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.1)
+      prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.01)
 
       att_weights_new_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, prop_tau, feature_weighting, sq_num_features,
                                                             splitprob_as_weights, s, FALSE)
       att_weights_new_denoms <- rowSums(att_weights_new_unnorm)
       att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
 
-      y_hat_new <- rep(0, n)
+      y_hat_unnorm_new <- rep(0, n)
       for (j in 1:m) {
         # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
-        y_hat_new <- y_hat_new + treepredmat[,j] * att_weights_new[, j]
+        y_hat_unnorm_new <- y_hat_unnorm_new + treepredmat[,j] * att_weights_new_unnorm[, j]
       }
-      sum_of_squares_new <- sum((y_scale - y_hat)^2)
+      y_hat_new <- y_hat_unnorm_new/att_weights_new_denoms
+      sum_of_squares_new <- sum((y_scale - y_hat_new)^2)
 
 
       l_new <-   - sum_of_squares_new/(2*sigma2)  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
@@ -552,7 +553,7 @@ attBart_no_w <- function(Xtrain,
         att_weights_current <- att_weights_new
 
         y_hat <- y_hat_new
-
+        y_hat_unnorm <- y_hat_unnorm_new
       }
 
     }
