@@ -735,6 +735,7 @@ get_attention_no_w <- function(trees, X, tau = 1, feature_weighting, sq_num_feat
         }
       }
 
+
       # weight_exp_matrix[, j] <- exp(-1 * X_L2_sq / (2 * tau))
       weight_exp_matrix[, j] <- -1 * X_L2_sq / (2 * tau)
 

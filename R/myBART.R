@@ -81,6 +81,8 @@ attBart_no_w <- function(Xtrain,
   # X_center <- attr(X_scaled, "scaled:center")
   # X_scale <- attr(X_scaled, "scaled:scale")
 
+  Xtrain <- as.matrix(Xtrain)
+
   X_scaled <- matrix(NA,
                      nrow = nrow(Xtrain),
                      ncol = ncol(Xtrain))

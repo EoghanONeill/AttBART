@@ -27,7 +27,7 @@ predict_attbart = function(object, newdata,
   # newdata2 <- scale(newdata, center = object$center, scale = object$scale)
 
   for(i in 1:ncol(newdata)) {
-    newdata2[,i] <- object$scale_x_funcs[[i]](newdata[,i])
+    newdata[,i] <- object$scale_x_funcs[[i]](newdata[,i])
   }
   # print("nrow(newdata2)= ")
   # print(nrow(newdata2))
@@ -45,7 +45,7 @@ predict_attbart = function(object, newdata,
 
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions(curr_trees,
-                                    newdata2,
+                                    newdata,
                                     single_tree = length(curr_trees) == 1)
   }
 
@@ -89,7 +89,7 @@ predict_attbart_test = function(object, newdata,
   # newdata <- newdata * object$scale + object$center
 
   # newdata2 <- scale(newdata, center = object$center, scale = object$scale)
-
+  newdata <- as.matrix(newdata)
 
   for(i in 1:ncol(newdata)) {
     newdata[,i] <- object$scale_x_funcs[[i]](newdata[,i])
@@ -102,6 +102,9 @@ predict_attbart_test = function(object, newdata,
   #
   # print("ncol(newdata)= ")
   # print(ncol(newdata))
+  #
+  # print("newdata = ")
+  # print(newdata)
 
 
   # Set up progress bar
@@ -132,7 +135,8 @@ predict_attbart_test = function(object, newdata,
                                          const_tree_weights = object$const_tree_weights,
                                          sq_num_features = object$sq_num_features,
                                          splitprob_as_weights = object$splitprob_as_weights,
-                                         s = object$s[i,])
+                                         s = object$s[i,],
+                                         test_binary = TRUE)
   }
 
 
