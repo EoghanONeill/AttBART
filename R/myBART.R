@@ -504,7 +504,7 @@ attBart_no_w <- function(Xtrain,
     sigma2 <- update_sigma2(S = sum_of_squares, n, nu, lambda)
 
     # Update s = (s_1, ..., s_p), where s_p is the probability that predictor q in 1:p is used to create new terminal nodes
-    if (sparse & i > floor(n_burn * 0.5)) {
+    if (sparse & (i > floor(n_burn * 0.5))) {
       s <- update_s(var_count, p, alpha_s)
       if(alpha_prior){
         alpha_s <- update_alpha(s, alpha_scale, alpha_a, alpha_b)

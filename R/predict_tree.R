@@ -92,7 +92,7 @@ predict_attbart_test = function(object, newdata,
 
 
   for(i in 1:ncol(newdata)) {
-    newdata2[,i] <- object$scale_x_funcs[[i]](newdata[,i])
+    newdata[,i] <- object$scale_x_funcs[[i]](newdata[,i])
   }
 
   # newdata <- (newdata -  object$center)/ object$scale
@@ -124,7 +124,7 @@ predict_attbart_test = function(object, newdata,
 
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions_no_w_test(curr_trees,
-                                         newdata2,
+                                              newdata,
                                          single_tree = length(curr_trees) == 1,
                                          # xtrain,
                                          tau = object$tau,
