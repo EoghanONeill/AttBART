@@ -59,7 +59,8 @@ attBart_no_w <- function(Xtrain,
                          alpha_prior = FALSE,
                          sigma_mu_prior = FALSE,
                          update_tau = FALSE,
-                         covariate_scaling = "normalize") { # Simple feature weighting
+                         covariate_scaling = "normalize",
+                         warm_weight_start = 0) { # Simple feature weighting
 
   if (!is.na(seed)) set.seed(seed)
 
@@ -187,6 +188,8 @@ attBart_no_w <- function(Xtrain,
   type_store <- matrix(NA, ncol = m, nrow = n_post)
   chosen_type_store <- matrix(NA, ncol = m, nrow = n_post)
 
+  tau_store <- rep(NA, n_post)
+
   # Initialise trees using stumps
   curr_trees <- create_stumps(
     m = m,
@@ -203,12 +206,18 @@ attBart_no_w <- function(Xtrain,
 
 
 
-  if(const_tree_weights){
+  if(const_tree_weights | (warm_weight_start > 0)
+     ){
     # att_weights_current <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
 
-    att_weights_current_unnorm <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
+    att_weights_current_unnorm <- matrix( 1, nrow = nrow(X_scaled), ncol = m)
     att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
     att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+
+    # print("initial weights unorm = ")
+    # print(att_weights_current_unnorm)
+    # print("initial weights = ")
+    # print(att_weights_current)
 
     att_weights_new_unnorm <- att_weights_current_unnorm
     att_weights_new_denoms <- att_weights_current_denoms
@@ -219,6 +228,11 @@ attBart_no_w <- function(Xtrain,
                                               splitprob_as_weights, s, FALSE)
     att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
     att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+#
+#     print("initial weights unorm = ")
+#     print(att_weights_current_unnorm)
+#     print("initial weights = ")
+#     print(att_weights_current)
 
     att_weights_new_unnorm <- att_weights_current_unnorm
     att_weights_new_denoms <- att_weights_current_denoms
@@ -238,6 +252,10 @@ attBart_no_w <- function(Xtrain,
   treepredmat <- matrix(NA, nrow = n, ncol = m)
 
 
+  if(warm_weight_start >= n_iter){
+    stop("Number of warm start iterations is greater than or wqual to total number of MCMC iterations.")
+  }
+
 
   for(j in 1:m){
 
@@ -250,6 +268,17 @@ attBart_no_w <- function(Xtrain,
   for (i in 1:n_iter) {
     utils::setTxtProgressBar(pb, i)
 
+    if(i == warm_weight_start +1){
+      att_weights_current_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                                            splitprob_as_weights, s, FALSE)
+      att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
+      att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+
+      att_weights_new_unnorm <- att_weights_current_unnorm
+      att_weights_new_denoms <- att_weights_current_denoms
+      att_weights_new <- att_weights_current
+    }
+
     # Loop through trees
     for (j in 1:m) {
       # We need the new and old trees for the likelihoods
@@ -261,6 +290,7 @@ attBart_no_w <- function(Xtrain,
       # } else {
       #   type <- sample(c("grow", "prune", "change"), 1, prob = trans_prob)
       # }
+
 
 
       type = sample_move(curr_trees[[j]], i, 0, #n_burn
@@ -366,7 +396,7 @@ attBart_no_w <- function(Xtrain,
 
       # att_weights_new_unnorm <- att_weights_current_unnorm
 
-      if(const_tree_weights){
+      if(const_tree_weights | (i <= warm_weight_start) ){
         # att_weights_new <- matrix(1/m, nrow = nrow(X_scaled), ncol = m)
       }else{
         att_weights_new_unnorm <- att_weights_current_unnorm
@@ -461,7 +491,7 @@ attBart_no_w <- function(Xtrain,
         curr_trees[[j]] <- new_tree
         curr_partial_resid_rescaled <- new_partial_resid_rescaled
         att_weights_current <- att_weights_new
-        if(!const_tree_weights){
+        if( (!const_tree_weights) & (i > warm_weight_start)){
           att_weights_current_unnorm <- att_weights_new_unnorm
           att_weights_current_denoms <- att_weights_new_denoms
         }
@@ -521,8 +551,8 @@ attBart_no_w <- function(Xtrain,
 
 
 
-    if( (! const_tree_weights)  & update_tau){
-      prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.01)
+    if( ((! const_tree_weights) &  (i > warm_weight_start))  & update_tau){
+      prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.0001)
 
       att_weights_new_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, prop_tau, feature_weighting, sq_num_features,
                                                             splitprob_as_weights, s, FALSE)
@@ -570,6 +600,7 @@ attBart_no_w <- function(Xtrain,
       var_count_store[curr, ] <- var_count
       s_prob_store[curr, ] <- s
       att_weights_store[[curr]] <- att_weights_current
+      tau_store[curr] <- tau
     }
     # pb$tick()
   } # End loop through MCMC iterations
@@ -596,12 +627,13 @@ attBart_no_w <- function(Xtrain,
     y_sd = y_sd,
     y_mean = y_mean,
     feature_weighting = feature_weighting,
-    tau = tau,
+    # tau = tau,
     y_max = y_max,
     y_min = y_min,
     const_tree_weights = const_tree_weights,
     sq_num_features = sq_num_features,
     splitprob_as_weights = splitprob_as_weights,
-    scale_x_funcs = scale_x_funcs
+    scale_x_funcs = scale_x_funcs,
+    tau_store = tau_store
   ))
 }
