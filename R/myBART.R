@@ -60,7 +60,26 @@ attBart_no_w <- function(Xtrain,
                          sigma_mu_prior = FALSE,
                          update_tau = FALSE,
                          covariate_scaling = "normalize",
-                         warm_weight_start = 0) { # Simple feature weighting
+                         warm_weight_start = 0,
+                         include_w = FALSE,
+                         fix_epsilon_w = TRUE,
+                         epsilon_w = 0.5,
+                         w_prior = "normal",
+                         tau_w_hyperprior = FALSE) { # Simple feature weighting
+
+
+  if(include_w & !fix_epsilon_w ){
+    stop("Currently code is only written for fixed epsilon")
+  }
+
+  if(include_w & const_tree_weights ){
+    stop("Cannot include w and have constant tree weights. Maybe constant attention weights and varying w can be implemented in future implementations.")
+  }
+
+
+  if(!(w_prior %in% c("normal", "Dirichlet"))){
+    stop("w_prior must be 'normal' or 'Dirichlet'.")
+  }
 
   if (!is.na(seed)) set.seed(seed)
 
@@ -190,6 +209,7 @@ attBart_no_w <- function(Xtrain,
 
   tau_store <- rep(NA, n_post)
 
+
   # Initialise trees using stumps
   curr_trees <- create_stumps(
     m = m,
@@ -203,6 +223,11 @@ attBart_no_w <- function(Xtrain,
   #   att_weights_current <- get_attention_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
   #                                             splitprob_as_weights, s)
   # }
+
+
+
+
+
 
 
 
@@ -240,6 +265,14 @@ attBart_no_w <- function(Xtrain,
   }
 
 
+
+  # the include_w option will be included separately to the ocnstant weights option for hte purpose of testing
+
+
+
+
+
+
   # Set up progress bar
   # pb <- progress_bar$new(total = n_iter, format = "MCMC iterations [:bar] :current/:total in :elapsedfull, ETA: :eta")
   # Set up a progress bar
@@ -262,7 +295,59 @@ attBart_no_w <- function(Xtrain,
     treepredmat[,j] <- get_prediction_no_w(curr_trees[[j]], X_scaled)
   }
 
+
+  if(include_w){
+
+    w_vec <- rep(1/m, m)
+    w_prior_mean <- rep(1/m, m)
+    tau_w <- 1
+
+    a_w <- 1
+    b_w <- 1
+
+
+    if(w_prior == "Dirichlet"){
+      xi_w_vec <- rep(1/m, m)
+      alpha_w_par <- m
+
+      a_w_vec <- alpha_w_par*xi_w_vec
+      v_w_vec <- rep(0,m)
+
+      a_step_temp <- -(m/alpha_w_par)
+      m_step_temp <- 0.5*a_step_temp
+      s_step_temp <- -m_step_temp*tan((pi/10)/(m/alpha_w_par))
+
+      # print("a_step_temp = ")
+      # print(a_step_temp)
+      #
+      # print("m_step_temp = ")
+      # print(m_step_temp)
+      #
+      # print("s_step_temp = ")
+      # print(s_step_temp)
+
+    }
+
+    Adjusted_att_weights_current <- (att_weights_current*(1 - epsilon_w) ) %r+% (w_vec*epsilon_w)
+    Adjusted_att_weights_new <- (att_weights_new*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+
+    # Adjusted_att_weights_current <- Adjusted_att_weights_current/rowSums(Adjusted_att_weights_current)
+    # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
+
+    w_by_pred_sums <- rowSums(treepredmat %r+% w_vec )
+
+
+    wvec_store <- matrix(NA, ncol = m, nrow = n_post)
+    tau_w_store <- rep(NA,n_post)
+
+
+  }
+
+
   y_hat_unnorm <- rowSums(treepredmat*att_weights_current_unnorm)
+
+
+
 
   ######### MCMC iterations loop ##########
   for (i in 1:n_iter) {
@@ -277,6 +362,17 @@ attBart_no_w <- function(Xtrain,
       att_weights_new_unnorm <- att_weights_current_unnorm
       att_weights_new_denoms <- att_weights_current_denoms
       att_weights_new <- att_weights_current
+    }
+
+    if(include_w){
+
+
+      Adjusted_att_weights_current <- (att_weights_current*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+      Adjusted_att_weights_new <- (att_weights_new*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+
+      # Adjusted_att_weights_current <- Adjusted_att_weights_current/rowSums(Adjusted_att_weights_current)
+      # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
+
     }
 
     # Loop through trees
@@ -378,13 +474,28 @@ attBart_no_w <- function(Xtrain,
       #   curr_partial_resid <- curr_partial_resid - att_weights_current[, tree_ind] * treepredmat[,tree_ind]#get_prediction_no_w(curr_trees[[tree_ind]], X_scaled)
       # }
 
-      # curr_partial_resid <- y_scale - rowSums(att_weights_current[, -j] * treepredmat[,-j])
-      curr_partial_resid <- y_scale - y_hat_unnorm/att_weights_current_denoms + att_weights_current[, j] * treepredmat[,j]
 
 
+      if(include_w){
+        w_by_pred_sums_less_j <- w_by_pred_sums - w_vec[j] * treepredmat[,j]
+        y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
 
-      curr_partial_resid_rescaled <- curr_partial_resid / att_weights_current[, j]
+        curr_partial_resid <- y_scale - (1-epsilon_w)*y_hat_unnorm_less_j /att_weights_current_denoms - epsilon_w*w_by_pred_sums_less_j
+        # new_partial_resid_rescaled <- new_partial_resid / Adjusted_att_weights_new[, j]
 
+        Adjusted_att_weights_current_j <- att_weights_current[,j]*(1 - epsilon_w) + w_vec[j]*epsilon_w
+        curr_partial_resid_rescaled <- curr_partial_resid /  Adjusted_att_weights_current_j
+
+
+      }else{
+        # curr_partial_resid <- y_scale - rowSums(att_weights_current[, -j] * treepredmat[,-j])
+        curr_partial_resid <- y_scale - y_hat_unnorm/att_weights_current_denoms + att_weights_current[, j] * treepredmat[,j]
+
+        # y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
+        # curr_partial_resid <- y_scale - y_hat_unnorm_less_j /att_weights_current_denoms
+
+        curr_partial_resid_rescaled <- curr_partial_resid / att_weights_current[, j]
+      }
 
       # (b) Calculations using the proposed tree
       # if(const_tree_weights){
@@ -406,7 +517,9 @@ attBart_no_w <- function(Xtrain,
         att_weights_new_denoms <- att_weights_current_denoms - att_weights_current_unnorm[,j] + att_weights_new_unnorm[,j]
         att_weights_new <- att_weights_new_unnorm/att_weights_new_denoms
 
+
       }
+
 
 
 
@@ -449,12 +562,46 @@ attBart_no_w <- function(Xtrain,
       # new_partial_resid <- y_scale - rowSums(att_weights_new[, -j] * treepredmat[,-j])
 
 
-      y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
-      new_partial_resid <- y_scale - y_hat_unnorm_less_j /att_weights_new_denoms
 
 
-      new_partial_resid_rescaled <- new_partial_resid / att_weights_new[, j]
 
+      if(include_w){
+
+
+        # Adjusted_att_weights_current <- att_weights_current*(1 - epsilon_w) %r+% w_vec*epsilon_w
+        # Adjusted_att_weights_new <- att_weights_new*(1 - epsilon_w) %r+% w_vec*epsilon_w
+
+        # Adjusted_att_weights_current <- Adjusted_att_weights_current/rowSums(Adjusted_att_weights_current)
+        # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
+
+
+        w_by_pred_sums_less_j <- w_by_pred_sums - w_vec[j] * treepredmat[,j]
+        y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
+
+        new_partial_resid <- y_scale - (1-epsilon_w)*y_hat_unnorm_less_j /att_weights_new_denoms - epsilon_w*w_by_pred_sums_less_j
+        # new_partial_resid_rescaled <- new_partial_resid / Adjusted_att_weights_new[, j]
+
+        Adjusted_att_weights_new_j <- att_weights_new[,j]*(1 - epsilon_w) + w_vec[j]*epsilon_w
+        new_partial_resid_rescaled <- new_partial_resid /  ( Adjusted_att_weights_new_j)
+
+
+      }else{
+
+        y_hat_unnorm_less_j <- (y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j])
+        new_partial_resid <- y_scale - y_hat_unnorm_less_j /att_weights_new_denoms
+
+        new_partial_resid_rescaled <- new_partial_resid / att_weights_new[, j]
+
+
+
+      }
+
+      # if(include_w){
+      #   # there is probably a more efficient way of doing this
+      #   Adjusted_att_weights_new <- (att_weights_new*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+      #   # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
+      #
+      # }
 
       # (c) Obtain the Metropolis-Hastings probability
       curr_tree <- curr_trees[[j]]
@@ -464,9 +611,44 @@ attBart_no_w <- function(Xtrain,
         alpha_MH <- 0
         # print("no good trees")
       }else{
+
+        if(include_w){
+
+          if(any(is.na(Adjusted_att_weights_new_j))){
+            print("temp_curr_attweights = ")
+            print(temp_curr_attweights)
+
+            print("temp_new_attweights = ")
+            print(temp_new_attweights)
+
+            print("Adjusted_att_weights_current_j = ")
+            print(Adjusted_att_weights_current_j)
+
+            print("Adjusted_att_weights_new_j = ")
+            print(Adjusted_att_weights_new_j)
+
+            print("j =" )
+            print(j)
+
+            print("i =" )
+            print(i)
+
+
+            stop("NA attention weights")
+
+          }
+
+          temp_new_attweights <- abs(Adjusted_att_weights_new_j)
+          temp_curr_attweights <- abs(Adjusted_att_weights_current_j)
+        }else{
+          temp_new_attweights <- att_weights_new[, j]
+          temp_curr_attweights <- att_weights_current[, j]
+        }
+
         alpha_MH <- get_MH_probability(
           X = X_scaled, curr_tree, new_tree,
-          att_weights_current[, j], att_weights_new[, j],
+          temp_curr_attweights, #att_weights_current[, j],
+          temp_new_attweights, # att_weights_new[, j],
           curr_partial_resid_rescaled, new_partial_resid_rescaled,
           type, trans_prob,
           alpha, beta,
@@ -481,6 +663,35 @@ attBart_no_w <- function(Xtrain,
 
       # print("alpha_MH = ")
       # print(alpha_MH)
+
+      if(is.na(alpha_MH)){
+        print("alpha_MH = ")
+        print(alpha_MH)
+
+        print("curr_partial_resid_rescaled = ")
+        print(curr_partial_resid_rescaled)
+
+        print("new_partial_resid_rescaled = ")
+        print(new_partial_resid_rescaled)
+
+        print("temp_curr_attweights = ")
+        print(temp_curr_attweights)
+
+        print("temp_new_attweights = ")
+        print(temp_new_attweights)
+
+        print("j =" )
+        print(j)
+
+        print("i =" )
+        print(i)
+
+        stop("NA alpha_MH")
+
+      }
+
+
+
       # y_hat_unnorm <- y_hat_unnorm - att_weights_current_unnorm[, j] * treepredmat[,j]
 
 
@@ -521,19 +732,79 @@ attBart_no_w <- function(Xtrain,
 
       y_hat_unnorm <- y_hat_unnorm_less_j + treepredmat[,j] * att_weights_current_unnorm[, j]
 
+      if(include_w){
+        w_by_pred_sums <- w_by_pred_sums_less_j + treepredmat[,j] * w_vec[j]
+      }
+
+
     } # End loop through trees
 
-    # 3. Update/Sample sigma2 ---------------------------------------------------
+    ############# 3. Update/Sample sigma2 ---------------------------------------------------
     # y_hat <- rep(0, n)
     # for (j in 1:m) {
     #   # y_hat <- y_hat + get_prediction_no_w(curr_trees[[j]], X_scaled) * att_weights_current[, j]
     #   y_hat <- y_hat + treepredmat[,j] * att_weights_current[, j]
     # }
 
-    y_hat <- y_hat_unnorm/att_weights_current_denoms   # rowSums(treepredmat*att_weights_current)
+
+    if(include_w){
+      y_hat <-  (1 - epsilon_w) * (y_hat_unnorm/att_weights_current_denoms) + epsilon_w*w_by_pred_sums
+    }else{
+      y_hat <- y_hat_unnorm/att_weights_current_denoms   # rowSums(treepredmat*att_weights_current)
+    }
+
     sum_of_squares <- sum((y_scale - y_hat)^2)
 
+    # if(sum_of_squares > 1000){
+    #   print('cbind(y_scale, y_hat) = ')
+    #   print(cbind(y_scale, y_hat))
+    #
+    #   print('y_hat_unnorm/att_weights_current_denoms = ')
+    #   print(y_hat_unnorm/att_weights_current_denoms)
+    #
+    #   print('w_by_pred_sums= ')
+    #   print(w_by_pred_sums)
+    #
+    #   print("sigma2 = ")
+    #   print(sigma2)
+    #
+    #   print("i =" )
+    #   print(i)
+    #
+    #   stop("big sum_of_squares")
+    #
+    # }
+
+
+
     sigma2 <- update_sigma2(S = sum_of_squares, n, nu, lambda)
+
+    # print("w_vec = ")
+    # print(w_vec)
+    #
+    # print("sigma2 = ")
+    # print(sigma2)
+
+
+    if(sigma2 > 100){
+      print('cbind(y_scale, y_hat) = ')
+      print(cbind(y_scale, y_hat))
+
+      print('y_hat_unnorm/att_weights_current_denoms = ')
+      print(y_hat_unnorm/att_weights_current_denoms)
+
+      print('epsilon_w*w_by_pred_sums= ')
+      print(epsilon_w*w_by_pred_sums)
+
+      print("w_vec = ")
+      print(w_vec)
+
+      print("sigma2 = ")
+      print(sigma2)
+      stop("big sigma2")
+
+    }
+    ######### update s and alpha_s ##########################
 
     # Update s = (s_1, ..., s_p), where s_p is the probability that predictor q in 1:p is used to create new terminal nodes
     if (sparse & (i > floor(n_burn * 0.5))) {
@@ -544,12 +815,14 @@ attBart_no_w <- function(Xtrain,
     }
 
 
-
+    ####### update sigma_mu #########################
     if(sigma_mu_prior){
       sigma2_mu <-  update_sigma_mu(curr_trees, sigma2_mu)
     }
 
 
+
+    ####### update tau ####################
 
     if( ((! const_tree_weights) &  (i > warm_weight_start))  & update_tau){
       prop_tau <- max(tau*(5^(runif(n = 1,min = -1,max = 1))), 0.0001)
@@ -565,11 +838,23 @@ attBart_no_w <- function(Xtrain,
         y_hat_unnorm_new <- y_hat_unnorm_new + treepredmat[,j] * att_weights_new_unnorm[, j]
       }
       y_hat_new <- y_hat_unnorm_new/att_weights_new_denoms
-      sum_of_squares_new <- sum((y_scale - y_hat_new)^2)
+      # sum_of_squares_new <- sum((y_scale - y_hat_new)^2)
+
+      lik_orig <- sum(dnorm(x = y_scale,
+                                   mean = y_hat,
+                                   sd = sqrt(sigma2), log = TRUE))
+
+      lik_prop <- sum(dnorm(x = y_scale,
+                        mean = y_hat_new,
+                        sd = sqrt(sigma2), log = TRUE))
 
 
-      l_new <-   - sum_of_squares_new/(2*sigma2)  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
-      l_old <-   -  sum_of_squares/(2*sigma2)  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
+      # l_new <-   - sum_of_squares_new/(2*sigma2)  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
+      # l_old <-   -  sum_of_squares/(2*sigma2)  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
+
+      l_new <-   lik_prop  + dexp(prop_tau,tau_rate, log = TRUE) - log(tau)
+      l_old <-   lik_orig  + dexp(tau,tau_rate, log = TRUE) - log(prop_tau)
+
 
       if(runif(1) < exp(l_new - l_old)){
 
@@ -584,9 +869,278 @@ attBart_no_w <- function(Xtrain,
 
         y_hat <- y_hat_new
         y_hat_unnorm <- y_hat_unnorm_new
+
+
+        # if(include_w){
+        #   # maybe do not need to update adjusted weights here because will be updated after new draw of w
+        # }
+
       }
 
     }
+
+
+    ###### update w ################
+
+    # add checks for number of draws and for warm start etc
+
+    if(include_w){
+
+      if(w_prior == "normal"){
+         # define scaled residuals
+        resid_w <- (y_scale - (1 - epsilon_w) * y_hat_unnorm / att_weights_current_denoms)/epsilon_w
+
+
+        # obtain parameters for full conditional draw
+        # these calculations can probably be made more efficient
+
+        # print("w_varmat = ")
+        # print(w_varmat)
+
+        # print("treepredmat = ")
+        # print(treepredmat)
+        # print("tau_w = ")
+        # print(tau_w)
+        # print(" epsilon_w^2 = ")
+        # print( epsilon_w^2)
+        # print("sigma2 = ")
+        # print(sigma2)
+        # print("(tau_w * epsilon_w^2)/sigma2 = ")
+        # print((tau_w * epsilon_w^2)/sigma2)
+        #
+        #
+        # print("diag(m)*(tau_w * epsilon_w^2)/sigma2 = ")
+        # print(diag(m)*(tau_w * epsilon_w^2)/sigma2)
+
+        w_varmat <- solve( t(treepredmat) %*% treepredmat + diag(m)*(tau_w * epsilon_w^2)/sigma2)
+
+        # print("w_varmat = ")
+        # print(w_varmat)
+        #
+        # print("treepredmat = ")
+        # print(treepredmat)
+        #
+        # print("w_prior_mean = ")
+        # print(w_prior_mean)
+
+
+        w_mean <- w_varmat %*% ( t(treepredmat) %*% resid_w   + w_prior_mean*(tau_w * epsilon_w^2)/sigma2  )
+        w_varmat <- sigma2*w_varmat
+
+        # draw new w value
+        w_vec <- as.vector(rmvnorm(n = 1, mean = w_mean , sigma = w_varmat))
+
+        # update w_by_pred_sums and any other predictions that can be updated
+        w_by_pred_sums <- rowSums(treepredmat %r+% w_vec )
+
+        # draw new tau_w if it is an option
+
+        if(tau_w_hyperprior){
+          tau_w <- rgamma(n = 1,
+                          shape = a_w + m/2,
+                          rate = b_w +  sum((w_vec - w_prior_mean)^2)*epsilon_w^2 /(2*sigma2))
+        }
+
+
+        tau_w <- tau_w/sum(tau_w)
+
+        if(any(is.na("w_vec")) | is.na("tau_w"))  {
+          print("w_varmat = ")
+          print(w_varmat)
+
+          print("treepredmat = ")
+          print(treepredmat)
+
+          print("w_prior_mean = ")
+          print(w_prior_mean)
+
+          print("w_vec = ")
+          print(w_vec)
+
+          print("tau_w = ")
+          print(tau_w)
+
+          stop("NA in w vec or tau_w")
+
+        }
+
+      }
+
+
+      if(w_prior == "Dirichlet"){
+
+
+        # sample reparametrized v_j values
+
+
+
+        for(j in 1:m){
+
+          step_size <-  abs( a_step_temp*(0.5 - atan( ( v_w_vec[j] -  m_step_temp) / s_step_temp)/pi ) )
+
+          # print("v_w_vec = ")
+          # print(v_w_vec)
+          #
+          # print("step_size = ")
+          # print(step_size)
+          #
+          # print("j = ")
+          # print(j)
+
+          v_j_prop <- rnorm(n = 1,
+                            mean = v_w_vec[j],
+                            sd = step_size
+                            )
+
+          l_prop_prob <- dnorm(x = v_j_prop,
+                             mean = v_w_vec[j],
+                             sd = step_size,
+                             log = TRUE)
+
+
+          reverse_step_size <-  abs(a_step_temp*(0.5 - atan( ( v_j_prop -  m_step_temp) / s_step_temp)/pi ))
+
+          l_reverse_prob <- dnorm(x = v_w_vec[j],
+                                mean = v_j_prop,
+                                sd = reverse_step_size,
+                                log = TRUE)
+
+
+          # prior_prop <- exp(a_w_vec[j] * v_j_prop - exp(v_j_prop))/gamma(a_w_vec[j] )
+          # prior_orig <- exp(a_w_vec[j] * v_w_vec[j] - exp(v_w_vec[j]))/gamma(a_w_vec[j] )
+
+          l_prior_prop <- a_w_vec[j] * v_j_prop - exp(v_j_prop) - lgamma(a_w_vec[j] )
+          l_prior_orig <- a_w_vec[j] * v_w_vec[j] - exp(v_w_vec[j]) -lgamma(a_w_vec[j] )
+
+          prop_v_w_vec <- v_w_vec
+          prop_v_w_vec[j] <- v_j_prop
+
+
+          # print("v_j_prop = ")
+          # print(v_j_prop)
+
+          prop_w_vec <- exp(prop_v_w_vec)/sum(exp(prop_v_w_vec))
+
+          # now require likelihoods from new and old w values
+          w_by_pred_sums <- rowSums(treepredmat %r+% w_vec )
+
+          # print("prop_w_vec = ")
+          # print(prop_w_vec)
+
+          w_by_pred_sums_prop <- rowSums(treepredmat %r+% prop_w_vec )
+
+          y_hat <-  (1 - epsilon_w) * (y_hat_unnorm/att_weights_current_denoms) + epsilon_w*w_by_pred_sums
+          y_hat_prop <-  (1 - epsilon_w) * (y_hat_unnorm/att_weights_current_denoms) + epsilon_w*w_by_pred_sums_prop
+
+          # resids_orig <- y_scale - y_hat
+          # resids_prop <- y_scale - y_hat_prop
+
+          l_lik_orig <- dnorm(x = y_scale,
+                            mean = y_hat,
+                            sd = sqrt(sigma2),
+                            log = TRUE)
+
+          l_lik_prop <- dnorm(x = y_scale,
+                            mean = y_hat_prop,
+                            sd = sqrt(sigma2),
+                            log = TRUE)
+
+
+
+          w_mh_ratio <- exp( l_lik_prop  - l_lik_orig  +
+                                 l_prior_prop - l_prior_orig +
+                                 l_reverse_prob - l_prop_prob)
+
+
+          if(is.na(w_mh_ratio)){
+
+            print("v_w_vec = ")
+            print(v_w_vec)
+
+            print("step_size = ")
+            print(step_size)
+
+            print("i = ")
+            print(i)
+
+            print("j = ")
+            print(j)
+
+            print("v_j_prop = ")
+            print(v_j_prop)
+
+            print("prop_w_vec = ")
+            print(prop_w_vec)
+
+            print("l_lik_prop = ")
+            print(l_lik_prop)
+
+            print("l_lik_orig = ")
+            print(l_lik_orig)
+
+            print("l_prior_prop = ")
+            print(l_prior_prop)
+
+            print("l_prior_orig = ")
+            print(l_prior_orig)
+
+            print("l_reverse_prob = ")
+            print(l_reverse_prob)
+
+            print(" v_w_vec[j] = ")
+            print( v_w_vec[j])
+
+            print("reverse_step_size = ")
+            print(reverse_step_size)
+
+            print("l_prop_prob = ")
+            print(l_prop_prob)
+
+
+            print("l_prop_prob = ")
+            print(l_prop_prob)
+
+
+            print("a_w_vec[j] = ")
+            print(a_w_vec[j])
+
+            print("v_j_prop = ")
+            print(v_j_prop)
+
+
+            print("v_w_vec[j] = ")
+            print(v_w_vec[j])
+
+
+            # print("reverse_step_size = ")
+            # print(reverse_step_size)
+            #
+            # print("l_prop_prob = ")
+            # print(l_prop_prob)
+            #
+            #
+            # print("l_prop_prob = ")
+            # print(l_prop_prob)
+
+
+          }
+
+
+          if(runif(1) < w_mh_ratio){
+            w_vec <- prop_w_vec
+            v_w_vec <- prop_v_w_vec
+          }
+
+        } # end loop over j
+
+        w_by_pred_sums <- rowSums(treepredmat %r+% w_vec )
+
+
+      } # end if dirichlet prior
+
+
+    } # end w update
+
 
 
 
@@ -601,13 +1155,22 @@ attBart_no_w <- function(Xtrain,
       s_prob_store[curr, ] <- s
       att_weights_store[[curr]] <- att_weights_current
       tau_store[curr] <- tau
+
+      #store w_vec and tau_w
+      if(include_w){
+        wvec_store[curr,] <- w_vec
+        tau_w_store[curr] <- tau_w
+      }
+
+
     }
     # pb$tick()
   } # End loop through MCMC iterations
 
   cat("\n") # Make sure progress bar ends on a new line
 
-  return(list(
+
+  list_to_return <- list(
     trees = tree_store,
     sigma2 = sigma2_store * y_sd^2,
     y_hat =  (y_hat_store+(y_max + y_min)/2)*y_sd + y_mean,
@@ -634,6 +1197,17 @@ attBart_no_w <- function(Xtrain,
     sq_num_features = sq_num_features,
     splitprob_as_weights = splitprob_as_weights,
     scale_x_funcs = scale_x_funcs,
-    tau_store = tau_store
-  ))
+    tau_store = tau_store,
+    include_w = include_w
+  )
+
+  if(include_w){
+    list_to_return$w_vecs <- w_vec_stoire
+    list_to_return$tau_w_store <- tau_w_store
+    list_to_return$epsilon_w <- epsilon_w
+
+
+  }
+
+  return(list_to_return)
 }

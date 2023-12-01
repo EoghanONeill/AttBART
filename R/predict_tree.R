@@ -125,6 +125,14 @@ predict_attbart_test = function(object, newdata,
     # print("i = ")
     # print(i)
 
+    if(object$include_w){
+      epsilon_w_temp <- object$epsilon_w
+      w_vec_temp <- as.vector(object$w_vecs[i,])
+    }else{
+      epsilon_w_temp <- 0
+      w_vec_temp <- 0
+    }
+
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions_no_w_test(curr_trees,
                                               newdata,
@@ -136,7 +144,10 @@ predict_attbart_test = function(object, newdata,
                                          sq_num_features = object$sq_num_features,
                                          splitprob_as_weights = object$splitprob_as_weights,
                                          s = object$s[i,],
-                                         test_binary = TRUE)
+                                         test_binary = TRUE,
+                                         object$include_w,
+                                         epsilon_w,
+                                         w_vec_temp)
   }
 
 

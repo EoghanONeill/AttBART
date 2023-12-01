@@ -153,7 +153,10 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
                                      sq_num_features,
                                      splitprob_as_weights,
                                      s,
-                                     test_binary = TRUE) {
+                                     test_binary = TRUE,
+                                     include_w,
+                                     epsilon_w,
+                                     w_vec) {
 
   # Stop nesting problems in case of multiple trees
   if(is.null(names(trees)) & (length(trees) == 1)) trees = trees[[1]]
@@ -185,6 +188,9 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
     # More here to deal with more complicated trees - i.e. multiple trees
   } else {
     predictions <- rep(0, nrow(X))
+    if(include_w){
+      w_by_preds <- rep(0, nrow(X))
+    }
     for(m in 1:length(trees)){
 
       temptree <- trees[[m]]
@@ -201,7 +207,13 @@ get_predictions_no_w_test = function(trees, X, single_tree = FALSE, tau, feature
       }
 
       predictions <- predictions + treepredictions*att_weights[,m]
+      if(include_w){
+        w_by_preds <- w_by_preds + w_vec[m]*treepredictions
+      }
+    }
 
+    if(include_w){
+      predictions <- (1- epsilon_w)*predictions + epsilon_w*w_by_preds
     }
 
     #   # Do a recursive call to the function
