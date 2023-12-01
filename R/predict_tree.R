@@ -136,18 +136,18 @@ predict_attbart_test = function(object, newdata,
     # Use get_predictions function to get predictions
     y_hat_mat[i,] = get_predictions_no_w_test(curr_trees,
                                               newdata,
-                                         single_tree = length(curr_trees) == 1,
-                                         # xtrain,
-                                         tau = object$tau_store[i],
-                                         feature_weighting = object$feature_weighting,
-                                         const_tree_weights = object$const_tree_weights,
-                                         sq_num_features = object$sq_num_features,
-                                         splitprob_as_weights = object$splitprob_as_weights,
-                                         s = object$s[i,],
-                                         test_binary = TRUE,
-                                         object$include_w,
-                                         epsilon_w,
-                                         w_vec_temp)
+                                              single_tree = length(curr_trees) == 1,
+                                              # xtrain,
+                                              tau = object$tau_store[i],
+                                              feature_weighting = object$feature_weighting,
+                                              const_tree_weights = object$const_tree_weights,
+                                              sq_num_features = object$sq_num_features,
+                                              splitprob_as_weights = object$splitprob_as_weights,
+                                              s = object$s[i,],
+                                              test_binary = TRUE,
+                                              object$include_w,
+                                              epsilon_w_temp,
+                                              w_vec_temp)
   }
 
 
