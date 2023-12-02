@@ -126,7 +126,7 @@ predict_attbart_test = function(object, newdata,
     # print(i)
 
     if(object$include_w){
-      epsilon_w_temp <- object$epsilon_w
+      epsilon_w_temp <- object$epsilon_w_store[i]
       w_vec_temp <- as.vector(object$w_vecs[i,])
     }else{
       epsilon_w_temp <- 0

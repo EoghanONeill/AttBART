@@ -65,11 +65,20 @@ attBart_no_w <- function(Xtrain,
                          fix_epsilon_w = TRUE,
                          epsilon_w = 0.5,
                          w_prior = "normal",
-                         tau_w_hyperprior = FALSE) { # Simple feature weighting
+                         tau_w_hyperprior = FALSE,
+                         epsilon_prior = "normal",
+                         epsilon_mean = 0.5,
+                         epsilon_sd2 = 0.5
+                         ) { # Simple feature weighting
 
 
   if(include_w & !fix_epsilon_w ){
-    stop("Currently code is only written for fixed epsilon")
+
+    if(!(epsilon_prior %in% c("normal", "truncated_normal") ) ){
+      stop("currently only normal or truncated_normal prior supported for epsilon_w ")
+    }
+
+    # stop("Currently code is only written for fixed epsilon")
   }
 
   if(include_w & const_tree_weights ){
@@ -339,6 +348,7 @@ attBart_no_w <- function(Xtrain,
 
     wvec_store <- matrix(NA, ncol = m, nrow = n_post)
     tau_w_store <- rep(NA,n_post)
+    epsilon_w_store <- rep(NA,n_post)
 
 
   }
@@ -1266,7 +1276,46 @@ attBart_no_w <- function(Xtrain,
 
     } # end w update
 
+    ########## update epsilon_w ###################
 
+    if((include_w  &  (i > warm_weight_start) ) & ! fix_epsilon_w ){
+
+
+      if(epsilon_prior %in% c("normal", "truncated_normal")){
+
+        r_epilson <- y_scale - (y_hat_unnorm/att_weights_current_denoms)
+
+        w_epsilon <- w_by_pred_sums - (y_hat_unnorm/att_weights_current_denoms)
+
+        r_epilson <- r_epilson/w_epsilon
+
+        w_epsilon_sq <- w_epsilon^2
+
+        v_epsilon_sq <-  1/((1/epsilon_sd2) + (1/sigma2)*sum(w_epsilon_sq))
+
+
+        m_epsilon <- v_epsilon_sq*
+          ((epsilon_mean/epsilon_sd2) + (1/sigma2)*t(r_epilson)%*%w_epsilon_sq)
+
+        if(epsilon_prior == "normal"){
+          epsilon_w <- rnorm(n = 1,
+                             mean = m_epsilon,
+                             sd = sqrt(v_epsilon_sq))
+        }
+        if(epsilon_prior == "truncated_normal"){
+          epsilon_w <- rtruncnorm(n = 1, a= 0, b = 1,
+                                  mean = m_epsilon,
+                                  sd = sqrt(v_epsilon_sq))
+        }
+
+
+
+        y_hat <-  (1 - epsilon_w) * (y_hat_unnorm/att_weights_current_denoms) + epsilon_w*w_by_pred_sums
+
+      }
+
+
+    }
 
 
     # If at the right place, store everything
@@ -1285,6 +1334,7 @@ attBart_no_w <- function(Xtrain,
       if(include_w){
         wvec_store[curr,] <- w_vec
         tau_w_store[curr] <- tau_w
+        epsilon_w_store[curr] <- epsilon_w
       }
 
 
@@ -1329,7 +1379,7 @@ attBart_no_w <- function(Xtrain,
   if(include_w){
     list_to_return$w_vecs <- wvec_store
     list_to_return$tau_w_store <- tau_w_store
-    list_to_return$epsilon_w <- epsilon_w
+    list_to_return$epsilon_w_store <- epsilon_w_store
 
 
   }
