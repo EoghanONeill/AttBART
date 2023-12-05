@@ -22,7 +22,7 @@ make_normalized <- function(x) {
 #' @import collapse
 #' @importFrom mvtnorm 'rmvnorm'
 #' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
-#' @importFrom MCMCpack 'rdirichlet'
+#' @importFrom MCMCpack 'rdirichlet'  'ddirichlet'
 #' @importFrom truncnorm 'rtruncnorm'
 #' @importFrom rmutil 'ddoublepois'
 #' @useDynLib AttBART, .registration = TRUE
@@ -68,9 +68,14 @@ attBart_no_w <- function(Xtrain,
                          tau_w_hyperprior = FALSE,
                          epsilon_prior = "normal",
                          epsilon_mean = 0.5,
-                         epsilon_sd2 = 0.5
+                         epsilon_sd2 = 0.5,
+                         splitting_rules = "discrete"
                          ) { # Simple feature weighting
 
+
+  if(!(splitting_rules %in% c("discrete", "continuous"))){
+    stop("splitting_rules must be 'discrete' or 'continuous'.")
+  }
 
   if(include_w & !fix_epsilon_w ){
 
@@ -217,6 +222,7 @@ attBart_no_w <- function(Xtrain,
   chosen_type_store <- matrix(NA, ncol = m, nrow = n_post)
 
   tau_store <- rep(NA, n_post)
+  alpha_s_store <- rep(NA, n_post)
 
 
   # Initialise trees using stumps
@@ -417,7 +423,8 @@ attBart_no_w <- function(Xtrain,
         curr_tree = curr_trees[[j]],
         node_min_size = node_min_size,
         s = s,
-        max_bad_trees = max_bad_trees
+        max_bad_trees = max_bad_trees,
+        splitting_rules = splitting_rules
       )
 
       # # Feature weighting
@@ -805,8 +812,10 @@ attBart_no_w <- function(Xtrain,
         } else if (type == "prune") {
           var_count[curr_trees[[j]]$var] <- var_count[curr_trees[[j]]$var] - 1
         } else {
-          var_count[curr_trees[[j]]$var[1]] <- var_count[curr_trees[[j]]$var[1]] - 1 # What if change step returned $var equal to c(0,0) ????
-          var_count[curr_trees[[j]]$var[2]] <- var_count[curr_trees[[j]]$var[2]] + 1
+          if(curr_trees[[j]]$var[1]!=0){ # What if change step returned $var equal to c(0,0) ????
+            var_count[curr_trees[[j]]$var[1]] <- var_count[curr_trees[[j]]$var[1]] - 1
+            var_count[curr_trees[[j]]$var[2]] <- var_count[curr_trees[[j]]$var[2]] + 1
+          }
         }
 
 
@@ -1329,6 +1338,7 @@ attBart_no_w <- function(Xtrain,
       s_prob_store[curr, ] <- s
       att_weights_store[[curr]] <- att_weights_current
       tau_store[curr] <- tau
+      alpha_s_store[curr] <- alpha_s
 
       #store w_vec and tau_w
       if(include_w){
@@ -1373,6 +1383,7 @@ attBart_no_w <- function(Xtrain,
     splitprob_as_weights = splitprob_as_weights,
     scale_x_funcs = scale_x_funcs,
     tau_store = tau_store,
+    alpha_s_store = alpha_s_store,
     include_w = include_w
   )
 

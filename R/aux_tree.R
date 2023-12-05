@@ -73,7 +73,7 @@ resample <- function(x, ...) x[sample.int(length(x), size = 1), ...]
 sample.vec <- function(x, ...) x[sample(length(x), ...)]
 
 update_s <- function(var_count, p, alpha_s) {
-  s_ <- rdirichlet(1, (alpha_s / p ) + var_count)
+  s_ <- rdirichlet(1, as.vector((alpha_s / p ) + var_count))
   return(s_)
 }
 
@@ -827,6 +827,7 @@ get_MH_probability <- function(X, curr_tree, new_tree,
                                alpha, beta,
                                mu_mu, sigma2_mu, sigma2,
                                node_min_size) {
+
   # Number of terminal nodes in current tree
   b_j <- sum(curr_tree$tree_matrix[, "terminal"])
 
@@ -886,7 +887,7 @@ get_MH_probability <- function(X, curr_tree, new_tree,
     # print(beta)
 
     tree_ratio <- alpha * (1 - (alpha / ((2 + depth_jl)^beta)) )^2 / (((1 + depth_jl)^beta - alpha) )
-    transition_ratio <- prob_prune / prob_grow * b_j  / w_2_star # maybe this should be (w_2_star + 1) ?
+    transition_ratio <- (prob_prune / prob_grow) * (b_j  / w_2_star) # maybe this should be (w_2_star + 1) ?
   } else if (type == "prune") {
     # Finding the node used to prune is a bit more difficult then finding the node to split on
     pruned_node <- get_pruned_node(curr_tree, new_tree)
@@ -911,7 +912,7 @@ get_MH_probability <- function(X, curr_tree, new_tree,
     # transition_ratio <- prob_grow / prob_prune * w_2 / ((b_j - 1) * p_j_star * n_j_star)
 
     tree_ratio <- ((1 + depth_jl)^beta - alpha)  / (alpha * (1 - alpha / ((2 + depth_jl)^beta))^2)
-    transition_ratio <- prob_grow / prob_prune * w_2 / ((b_j - 1) )
+    transition_ratio <- (prob_grow / prob_prune) * (w_2 / ((b_j - 1) ))
   } else {
     # For the changing step, the tree and transition ratios cancel out into a factor of 1
     transition_ratio <- 1
@@ -1178,16 +1179,28 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
 
   alpha_grid <- alpha_scale * rho_grid / (1 - rho_grid )
 
-  logliks <- alpha_grid * mean_log_s +
-    lgamma(alpha_grid) -
-    p*lgamma(alpha_grid/p) +
-    (alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid)
-    # dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
+  # logliks <- alpha_grid * mean_log_s +
+  #   lgamma(alpha_grid) -
+  #   p*lgamma(alpha_grid/p) +
+  #   (alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid)
+  #   # dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
+
+
+  # logliks <- log(ddirichlet( t(matrix(s, p, 1000))  , t(matrix( rep(alpha_grid/p,p) , p , 1000)  ) ) ) +
+  #   (alpha_a - 1)*log(rho_grid) + (alpha_b-1)*log(1- rho_grid)
+  # # dbeta(x = rho_grid, shape1 = alpha_a, shape2 = alpha_b, ncp = 0, log = TRUE)
+
+  logliks <- rep(NA, 1000)
+  for(i in 1:1000){
+    logliks[i] <- log(ddirichlet(s  , rep(alpha_grid[i]/p,p) ) ) +
+      (alpha_a - 1)*log(rho_grid[i]) + (alpha_b-1)*log(1- rho_grid[i])
+  }
 
   max_ll <- max(logliks)
   logsumexps <- max_ll + log(sum(exp( logliks  -  max_ll )))
 
-
+  # print("logsumexps = ")
+  # print(logsumexps)
 
   logliks <- exp(logliks - logsumexps)
 
@@ -1218,6 +1231,9 @@ update_alpha <- function(s, alpha_scale, alpha_a, alpha_b) {
 
 
   }
+
+  # print("logliks = ")
+  # print(logliks)
 
   rho_ind <- sample.int(1000,size = 1, prob = logliks)
 
