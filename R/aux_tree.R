@@ -968,13 +968,53 @@ get_MH_probability2 <- function(X, curr_tree, new_tree,
   l_old <- get_logL(curr_tree, curr_partial_resid_rescaled, att_weights_current, mu_mu, sigma2_mu, sigma2)
 
   if(type == 'grow'){
-    a = exp(l_new - l_old)*ratio_grow(new_tree, curr_tree) * prob_prune / prob_grow
+    # a = exp(l_new - l_old + get_tree_prior(new_tree, alpha, beta)  - get_tree_prior(curr_tree, alpha, beta) )*
+    #   ratio_grow(curr_tree, new_tree) * (prob_prune / prob_grow)
+    a = exp(l_new - l_old + get_tree_prior(new_tree, alpha, beta)  - get_tree_prior(curr_tree, alpha, beta) +
+              log(ratio_grow(curr_tree, new_tree ) ))*
+       (prob_prune / prob_grow)
   } else if(type == 'prune'){
-    a = exp(l_new - l_old)*ratio_prune(new_tree, curr_tree) * prob_grow / prob_prune
+    a = exp(l_new - l_old + get_tree_prior(new_tree, alpha, beta)  - get_tree_prior(curr_tree, alpha, beta) +
+              log( ratio_prune(curr_tree, new_tree) ))*
+     (prob_grow / prob_prune)
   } else{
     a = exp(l_new - l_old)
   }
 
+  if(is.na(a)){
+    print("get_tree_prior(new_tree, alpha, beta) = ")
+    print(get_tree_prior(new_tree, alpha, beta))
+
+    print("get_tree_prior(curr_tree, alpha, beta) ) = ")
+    print(get_tree_prior(curr_tree, alpha, beta) )
+
+
+    print("ratio_grow(curr_tree, new_tree ) ) = ")
+    print(ratio_grow(curr_tree, new_tree ) )
+
+    print("ratio_prune(curr_tree, new_tree)  = ")
+    print(ratio_prune(curr_tree, new_tree) )
+
+    print("new_tree = ")
+    print(new_tree)
+
+    print("curr_tree = ")
+    print(curr_tree)
+
+    print("alpha = ")
+    print(alpha)
+
+    print("beta = ")
+    print(beta)
+
+    print("l_new = ")
+    print(l_new)
+
+    print("l_old = ")
+    print(l_old)
+
+
+  }
 
   # r <- exp(l_new - l_old) * transition_ratio * tree_ratio
   return(min(1, a))
