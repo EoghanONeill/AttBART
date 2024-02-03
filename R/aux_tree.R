@@ -1120,7 +1120,7 @@ get_logL <- function(tree, residuals, att_weights, mu_mu, sigma2_mu, sigma2) {
   #
   # }
 
-  logL <-  sum( - 0.5 * nj * log(2 * sigma2 * pi) + logsum_attw_vec -
+  logL <-  sum( - 0.5 * nj * log(2 * sigma2 * pi) + logsum_attw_vec + 0.5*log(sigma2) -
     0.5 * log(sigma2_mu * sum_1_vec + sigma2) - awsq_by_resid2_vec / (2 * sigma2) +
     ((sigma2_mu / sigma2) * sum_2_vec^2 + (sigma2 / sigma2_mu) * mu_mu^2 + 2 * mu_mu * sum_2_vec) / (2 * (sigma2_mu * sum_1_vec + sigma2))
     )
