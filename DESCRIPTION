@@ -25,4 +25,5 @@ Imports:
     truncnorm,
     rmutil,
     progress,
-    collapse
+    collapse,
+    SoftBart

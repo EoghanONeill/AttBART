@@ -20,6 +20,7 @@ make_normalized <- function(x) {
 #' @import Rcpp
 #' @import progress
 #' @import collapse
+#' @import SoftBart
 #' @importFrom mvtnorm 'rmvnorm'
 #' @importFrom stats 'rgamma' 'runif' 'dnorm' 'sd' 'rnorm' 'pnorm' 'aggregate' 'contrasts' 'model.matrix'
 #' @importFrom MCMCpack 'rdirichlet'  'ddirichlet'
@@ -177,8 +178,11 @@ attBart_no_w <- function(Xtrain,
   s <- rep(1 / p, p) # probability vector to be used during the growing process for DART feature weighting
   rho <- p # For DART
 
-  alpha_s <- 1 # p
-
+  if(alpha_prior){
+    alpha_s <- p
+  }else{
+    alpha_s <- 1
+  }
   alpha_scale <- p
 
 
@@ -376,26 +380,30 @@ attBart_no_w <- function(Xtrain,
   for (i in 1:n_iter) {
     utils::setTxtProgressBar(pb, i)
 
-    if(i == warm_weight_start +1){
-      att_weights_current_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
-                                                            splitprob_as_weights, s, FALSE)
-      att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
-      att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
+    if(const_tree_weights){
 
-      att_weights_new_unnorm <- att_weights_current_unnorm
-      att_weights_new_denoms <- att_weights_current_denoms
-      att_weights_new <- att_weights_current
-    }
+    }else{
+      if(i == warm_weight_start +1){
+        att_weights_current_unnorm <- get_unnorm_att_all_no_w(curr_trees, X_scaled, tau, feature_weighting, sq_num_features,
+                                                              splitprob_as_weights, s, FALSE)
+        att_weights_current_denoms <- rowSums(att_weights_current_unnorm)
+        att_weights_current <- att_weights_current_unnorm/att_weights_current_denoms
 
-    if(include_w){
+        att_weights_new_unnorm <- att_weights_current_unnorm
+        att_weights_new_denoms <- att_weights_current_denoms
+        att_weights_new <- att_weights_current
+      }
+
+      if(include_w){
 
 
-      Adjusted_att_weights_current <- (att_weights_current*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
-      Adjusted_att_weights_new <- (att_weights_new*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+        Adjusted_att_weights_current <- (att_weights_current*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
+        Adjusted_att_weights_new <- (att_weights_new*(1 - epsilon_w)) %r+% (w_vec*epsilon_w)
 
-      # Adjusted_att_weights_current <- Adjusted_att_weights_current/rowSums(Adjusted_att_weights_current)
-      # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
+        # Adjusted_att_weights_current <- Adjusted_att_weights_current/rowSums(Adjusted_att_weights_current)
+        # Adjusted_att_weights_new <- Adjusted_att_weights_new/rowSums(Adjusted_att_weights_new)
 
+      }
     }
 
     # Loop through trees
@@ -916,18 +924,21 @@ attBart_no_w <- function(Xtrain,
 
 
     if(sigma2 > 100){
-      print('cbind(y_scale, y_hat)[1:10,] = ')
+      print('cbind(y_scale, y_hat, y_hat_unnorm, att_weights_current_denoms)[1:10,] = ')
       print(cbind(y_scale, y_hat)[1:10,])
+      print("att_weights_current_denoms = ")
+      print(att_weights_current_denoms)
 
       print(' ((1- epsilon_w) * y_hat_unnorm/att_weights_current_denoms)[1:5] = ')
       print(((1- epsilon_w) * y_hat_unnorm/att_weights_current_denoms)[1:5])
 
-      print('epsilon_w*w_by_pred_sums[1:5]= ')
-      print(epsilon_w*w_by_pred_sums[1:5])
+      if(include_w){
+        print('epsilon_w*w_by_pred_sums[1:5]= ')
+        print(epsilon_w*w_by_pred_sums[1:5])
 
-      print("w_vec = ")
-      print(w_vec)
-
+        print("w_vec = ")
+        print(w_vec)
+      }
 
 
       print("treepredmat[1:10,] = ")
@@ -952,9 +963,22 @@ attBart_no_w <- function(Xtrain,
 
     # Update s = (s_1, ..., s_p), where s_p is the probability that predictor q in 1:p is used to create new terminal nodes
     if (sparse & (i > floor(n_burn * 0.5))) {
-      s <- update_s(var_count, p, alpha_s)
+      s_update <- update_s(var_count, p, alpha_s)
+      s <- s_update[[1]]
+      if(length(s) != ncol(X_scaled)){
+        print("s = ")
+        print(s)
+        print("length(s) = ")
+        print(length(s))
+        print("ncol(X) = ")
+        print(ncol(X_scaled))
+        print("p = ")
+        print(p)
+
+      }
+
       if(alpha_prior){
-        alpha_s <- update_alpha(s, alpha_scale, alpha_a, alpha_b)
+        alpha_s <- update_alpha(s, alpha_scale, alpha_a, alpha_b, p, s_update[[2]])
       }
     }
 
