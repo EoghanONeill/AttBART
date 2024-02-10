@@ -50,9 +50,9 @@ attBart_no_w <- function(Xtrain,
                          alpha_a = 0.5, # Linero alpha prior parameter
                          alpha_b = 1, # Linero alpha prior parameter
                          seed = NA,
-                         feature_weighting = FALSE,
+                         feature_weighting = TRUE,
                          sq_num_features = TRUE,
-                         sq_ydiff_sigmu = TRUE,
+                         sq_ydiff_sigmu = FALSE,
                          centre_y = TRUE,
                          const_tree_weights = FALSE,
                          splitprob_as_weights = FALSE,
